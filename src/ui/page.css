@@ -269,6 +269,15 @@ th {
 }
 td { padding: 9px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); color: rgba(255, 255, 255, 0.86); }
 tr:hover td { background: rgba(255, 255, 255, 0.02); }
+/* The latency log: one line per cell, details small underneath. */
+table.log { font-size: 13px; }
+table.log th, table.log td { white-space: nowrap; padding-left: 7px; padding-right: 7px; }
+table.log td { vertical-align: top; }
+table.log td small { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+table.log td.err small { color: inherit; opacity: 0.75; }
+table.log b.buy { color: var(--ok); }
+table.log b.sell { color: var(--bad); }
+table.log .mono { word-break: normal; }
 
 /* Unsaved changes: a glass bar along the bottom. */
 .savebar {

@@ -5,6 +5,22 @@ import { shortAddr } from '../format';
 
 const COLUMNS: (keyof TradeLogEntry)[] = ['at', 'side', 'amount', 'tier', 'venue', 'mint', 'status', 'clickToSentMs', 'sentToSettledMs', 'slot', 'rebroadcasts', 'sendMode', 'signature', 'error'];
 
+/** Venue ids as people say them ("PUMP_CURVE_ROUTED" -> "Pump curve · routed"). */
+const VENUE_NAMES: Record<string, string> = {
+  PUMP_CURVE: 'Pump curve',
+  PUMPSWAP: 'PumpSwap',
+  LAUNCHLAB: 'LaunchLab',
+  RAYDIUM_CPMM: 'Raydium CPMM',
+  CLMM: 'CLMM',
+};
+function venueName(v: string): string {
+  const routed = v.endsWith('_ROUTED');
+  const base = routed ? v.slice(0, -'_ROUTED'.length) : v;
+  const name = VENUE_NAMES[base] ?? base.toLowerCase().replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+  return routed ? `${name} · routed` : name;
+}
+const STATUS_NAMES: Record<string, string> = { confirmed: 'Landed', failed: 'Failed', expired: 'Expired', rejected: 'Refused' };
+
 function csv(rows: TradeLogEntry[]): string {
   const esc = (v: unknown) => {
     const s = v === null || v === undefined ? '' : String(v);
@@ -45,9 +61,9 @@ export function TradeLogTab() {
         <p>No live trades yet.</p>
       ) : (
         <div class="card" style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table class="log">
             <thead>
-              <tr style={{ textAlign: 'left', color: 'var(--muted)' }}>
+              <tr>
                 <th>Time</th>
                 <th>Trade</th>
                 <th>Venue</th>
@@ -60,22 +76,27 @@ export function TradeLogTab() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.signature} style={{ borderTop: '1px solid var(--border)' }}>
-                  <td>{new Date(r.at).toLocaleTimeString()}</td>
+                <tr key={r.signature}>
+                  <td class="muted">{new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</td>
                   <td>
-                    {r.side} {r.side === 'buy' ? `${r.amount} SOL` : `${r.amount}%`} · {r.tier} · <span class="mono">{shortAddr(r.mint)}</span>
+                    <b class={r.side === 'buy' ? 'buy' : 'sell'}>
+                      {r.side === 'buy' ? `Buy ${r.amount} SOL` : `Sell ${r.amount}%`}
+                    </b>
+                    <small>
+                      {r.tier === 'fast' ? 'Fast' : 'Eco'} · <span class="mono">{shortAddr(r.mint)}</span>
+                    </small>
                   </td>
-                  <td>{r.venue}</td>
+                  <td>{venueName(r.venue)}</td>
                   <td class={r.status === 'confirmed' ? 'ok' : 'err'} title={r.error ?? ''}>
-                    {r.status}
-                    {r.rebroadcasts ? ` (${r.rebroadcasts}× rebroadcast)` : ''}
+                    {STATUS_NAMES[r.status] ?? r.status}
+                    {r.rebroadcasts ? <small>{r.rebroadcasts}× rebroadcast</small> : null}
                   </td>
                   <td>{r.clickToSentMs ?? '—'} ms</td>
                   <td>{r.sentToSettledMs ?? '—'} ms</td>
-                  <td>{r.slot ?? '—'}</td>
+                  <td class="muted">{r.slot ?? '—'}</td>
                   <td>
                     <a href={`https://solscan.io/tx/${r.signature}`} target="_blank" rel="noopener noreferrer">
-                      {shortAddr(r.signature, 5)}
+                      {shortAddr(r.signature, 4)}
                     </a>
                   </td>
                 </tr>
