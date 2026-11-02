@@ -8,3 +8,4 @@ node_modules/
 *.log
 promo/teaser/still-*.jpg
 promo/banner/banner-guides.jpg
+promo/teaser/*.wav

@@ -9,6 +9,7 @@
 <body>
 <canvas id="c" width="1920" height="1080"></canvas>
 <script src="common.js"></script>
+<script src="sfx.js"></script>
 <script>
 // "The 1% you don't need to pay": every frame is a pure function of t (seconds).
 //
@@ -134,7 +135,41 @@ function draw(t) {
   );
 }
 
-promo.start({ draw, duration: DURATION });
+/** Effects only, on the same timeline. */
+function sounds(s) {
+  s.whoosh(0.4, 0.6, { level: 0.4 });
+  s.whoosh(3.6, 0.55, { level: 0.4 });
+  s.pop(4.0, 700, 0.25);
+  // A tick each time the fee shown passes another 0.1 SOL, rising as it climbs.
+  let shown = 0;
+  for (let t = 4.4; t <= 5.9; t += 1 / 240) {
+    const v = Math.floor(30 * ease((t - 4.4) / 1.4));
+    if (v > shown) {
+      shown = v;
+      s.tick(t, 1300 + v * 45, 0.14);
+    }
+  }
+  s.swipe(6.3, 0.4, 0.5);
+  s.pop(6.8, 660, 0.5);
+  s.success(6.85, 0.3);
+  s.whoosh(8.85, 0.6, { level: 0.4 });
+  for (const at of [9.4, 10.1, 10.8]) {
+    s.whoosh(at - 0.05, 0.3, { level: 0.25, pan: 0.3, from: 900, to: 5000 });
+    s.landed(at + 0.12, 0.32);
+  }
+  // The saved counter, softly.
+  let saved = 0;
+  for (let t = 9.2; t <= 12.2; t += 1 / 240) {
+    const v = Math.floor(20 * 3.04 * ease((t - 9.2) / 3.0));
+    if (v > saved) {
+      saved = v;
+      s.tick(t, 2400, 0.05);
+    }
+  }
+  s.outro(12.6);
+}
+
+promo.start({ draw, duration: DURATION, sounds });
 </script>
 </body>
 </html>

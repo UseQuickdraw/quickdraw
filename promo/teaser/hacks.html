@@ -9,6 +9,7 @@
 <body>
 <canvas id="c" width="1920" height="1080"></canvas>
 <script src="common.js"></script>
+<script src="sfx.js"></script>
 <script>
 // "Don't keep your keys on a website": every frame is a pure function of t (seconds).
 //
@@ -312,7 +313,27 @@ function draw(t) {
   );
 }
 
-promo.start({ draw, duration: DURATION });
+/** Effects only, on the same timeline. */
+function sounds(s) {
+  s.rumble(0.2, 14.2, 0.26);
+  s.thud(0.5, 0.55);
+  // Glitch bursts where the title visibly glitches (the same noise as glitchText).
+  for (let k = Math.floor(0.5 * 6); k <= Math.floor(3.3 * 6); k++) if (noise(k) > 0.62) s.glitch(k / 6, 1 / 6, 0.4);
+  [3.7, 4.25, 4.8, 5.35].forEach((at, i) => s.alert(at + 0.05, 0.42, i % 2 ? 0.3 : -0.3));
+  s.whoosh(7.85, 0.8, { level: 0.35, up: false, from: 200, to: 2400 });
+  s.thud(8.75, 0.75);
+  s.whoosh(10.85, 0.6, { level: 0.35 });
+  s.glitch(11.0, 0.12, 0.25);
+  s.click(11.35, 0.35);
+  s.pop(11.7, 520, 0.4, 0.4);
+  // Tension, then relief as the colour turns green.
+  s.riser(13.7, 1.2, 0.35);
+  s.success(14.95, 0.3);
+  s.pop(15.65, 620, 0.25);
+  s.outro(17.5);
+}
+
+promo.start({ draw, duration: DURATION, sounds });
 </script>
 </body>
 </html>

@@ -2,7 +2,8 @@
 // lines, glows, the cursor, toasts, the logo outro and the in-browser encoder.
 // A classic script (not a module) so it loads from file:// pages.
 //
-// Each page defines `draw(t)` and `DURATION`, then calls `promo.start({ draw, duration, images })`.
+// Each page defines `draw(t)` and `DURATION`, then calls `promo.start({ draw, duration, images, sounds })`;
+// `sounds(sfx)` (sfx.js) schedules its effects, which are muxed in as an AAC track (Opus if AAC isn't available).
 (() => {
   const W = 1920, H = 1080, FPS = 30;
   const GREEN = '#44a257';
@@ -236,7 +237,33 @@
     return `rgb(${r}, ${gr}, ${b})`;
   }
 
-  function start({ draw, duration, images = [], onReady }) {
+  /** Encodes PCM (an AudioBuffer) for the muxer: AAC where the browser has it, else Opus. */
+  async function encodeAudio(buffer, muxer) {
+    const config = { sampleRate: buffer.sampleRate, numberOfChannels: 2, bitrate: 192_000 };
+    const aac = (await AudioEncoder.isConfigSupported({ ...config, codec: 'mp4a.40.2' })).supported;
+    let error = null;
+    const enc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: (e) => (error = e) });
+    enc.configure({ ...config, codec: aac ? 'mp4a.40.2' : 'opus' });
+    const n = buffer.length;
+    const L = buffer.getChannelData(0);
+    const R = buffer.getChannelData(1);
+    const FRAMES = 1024;
+    for (let i = 0; i < n; i += FRAMES) {
+      const len = Math.min(FRAMES, n - i);
+      const data = new Float32Array(len * 2);
+      data.set(L.subarray(i, i + len), 0);
+      data.set(R.subarray(i, i + len), len);
+      const a = new AudioData({ format: 'f32-planar', sampleRate: buffer.sampleRate, numberOfFrames: len, numberOfChannels: 2, timestamp: Math.round((i * 1e6) / buffer.sampleRate), data });
+      enc.encode(a);
+      a.close();
+      if (error) throw error;
+    }
+    await enc.flush();
+    if (error) throw error;
+    return aac ? 'aac' : 'opus';
+  }
+
+  function start({ draw, duration, images = [], onReady, sounds }) {
     window.ready = (async () => {
       await document.fonts.load(SANS(46));
       await document.fonts.load(SANS(108, 700));
@@ -254,7 +281,14 @@
     window.encode = async () => {
       const { Muxer, ArrayBufferTarget } = await import('https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/+esm');
       const target = new ArrayBufferTarget();
-      const muxer = new Muxer({ target, video: { codec: 'avc', width: W, height: H, frameRate: FPS }, fastStart: 'in-memory' });
+      const pcm = sounds ? await window.sfx.render(sounds, duration) : null;
+      const aac = pcm ? (await AudioEncoder.isConfigSupported({ codec: 'mp4a.40.2', sampleRate: pcm.sampleRate, numberOfChannels: 2, bitrate: 192_000 })).supported : false;
+      const muxer = new Muxer({
+        target,
+        video: { codec: 'avc', width: W, height: H, frameRate: FPS },
+        ...(pcm ? { audio: { codec: aac ? 'aac' : 'opus', numberOfChannels: 2, sampleRate: pcm.sampleRate } } : {}),
+        fastStart: 'in-memory',
+      });
       let error = null;
       const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => (error = e) });
       enc.configure({ codec: 'avc1.640028', width: W, height: H, bitrate: 10_000_000, framerate: FPS, latencyMode: 'quality' });
@@ -268,11 +302,48 @@
         if (error) throw error;
       }
       await enc.flush();
+      const audio = pcm ? await encodeAudio(pcm, muxer) : 'none';
       muxer.finalize();
       const bytes = new Uint8Array(target.buffer);
       let s = '';
       for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      return { frames, size: bytes.length, b64: btoa(s) };
+      return { frames, size: bytes.length, b64: btoa(s), audio };
+    };
+
+    /** The soundtrack alone, as a 16-bit WAV (base64) plus its peak and loudness, to check it. */
+    window.soundtrack = async () => {
+      if (!sounds) return null;
+      const pcm = await window.sfx.render(sounds, duration);
+      const n = pcm.length;
+      const L = pcm.getChannelData(0);
+      const R = pcm.getChannelData(1);
+      const wav = new DataView(new ArrayBuffer(44 + n * 4));
+      const str = (o, t) => [...t].forEach((ch, i) => wav.setUint8(o + i, ch.charCodeAt(0)));
+      str(0, 'RIFF');
+      wav.setUint32(4, 36 + n * 4, true);
+      str(8, 'WAVEfmt ');
+      wav.setUint32(16, 16, true);
+      wav.setUint16(20, 1, true);
+      wav.setUint16(22, 2, true);
+      wav.setUint32(24, pcm.sampleRate, true);
+      wav.setUint32(28, pcm.sampleRate * 4, true);
+      wav.setUint16(32, 4, true);
+      wav.setUint16(34, 16, true);
+      str(36, 'data');
+      wav.setUint32(40, n * 4, true);
+      let peak = 0;
+      let sum = 0;
+      for (let i = 0; i < n; i++) {
+        for (const [c, x] of [L[i], R[i]].entries()) {
+          peak = Math.max(peak, Math.abs(x));
+          sum += x * x;
+          wav.setInt16(44 + i * 4 + c * 2, Math.max(-1, Math.min(1, x)) * 0x7fff, true);
+        }
+      }
+      const bytes = new Uint8Array(wav.buffer);
+      let s = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return { b64: btoa(s), peak, rms: Math.sqrt(sum / (n * 2)) };
     };
   }
 

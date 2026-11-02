@@ -4,6 +4,7 @@
 //   npm run teaser                                  -> docs/quickdraw-teaser.mp4
 //   npm run teaser -- --page fees                   -> docs/quickdraw-fees.mp4
 //   npm run teaser -- --page keys --stills 1.5,8    -> JPEG stills at those seconds, next to this file
+//   npm run teaser -- --page keys --wav             -> its soundtrack alone, as keys.wav next to this file
 //
 // It opens the page in headless Edge (or Chrome: set BROWSER to its path), lets
 // the page draw every frame on a canvas and encode it with WebCodecs, and saves
@@ -74,10 +75,17 @@ try {
       writeFileSync(file, Buffer.from(url.split(',')[1], 'base64'));
       console.log(file);
     }
+  } else if (process.argv.includes('--wav')) {
+    // The soundtrack alone, to listen to or check without encoding the video.
+    const r = await evaluate('window.soundtrack()');
+    if (!r) throw new Error(`${name} has no soundtrack`);
+    const file = join(here, `${name}.wav`);
+    writeFileSync(file, Buffer.from(r.b64, 'base64'));
+    console.log(`${file}: peak ${r.peak.toFixed(3)}, rms ${r.rms.toFixed(4)}`);
   } else {
     const r = await evaluate('window.encode()');
     writeFileSync(out, Buffer.from(r.b64, 'base64'));
-    console.log(`${out}: ${r.frames} frames, ${(r.size / 1e6).toFixed(1)} MB`);
+    console.log(`${out}: ${r.frames} frames, ${(r.size / 1e6).toFixed(1)} MB, audio: ${r.audio ?? 'none'}`);
   }
   ws.close();
 } finally {
