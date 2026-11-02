@@ -148,8 +148,8 @@ function Popup() {
               </button>
               {rows && rows.length > 1 && (
                 <>
-                  <button onClick={() => void select(rows.map((w) => w.pubkey))}>All</button>
-                  <button onClick={() => void select(rows.filter((w) => (w.sol ?? 0) > 0).map((w) => w.pubkey))}>With balance</button>
+                  <button onClick={() => void select(rows.map((w) => w.pubkey))}>Select All</button>
+                  <button onClick={() => void select(rows.filter((w) => (w.sol ?? 0) > 0).map((w) => w.pubkey))}>Select All With Balance</button>
                 </>
               )}
             </div>

@@ -57,7 +57,7 @@ button.icon svg { width: 14px; height: 14px; }
 .spin { display: inline-flex; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.actions { display: flex; gap: 6px; margin: 12px 0 10px; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 10px; }
 .actions button {
   display: inline-flex;
   align-items: center;

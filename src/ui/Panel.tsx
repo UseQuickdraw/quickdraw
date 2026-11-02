@@ -680,7 +680,7 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
     <div class="it-wallets" onKeyDown={(e) => e.key === 'Escape' && setWalletRows(null)}>
       <div class="it-wallets-bar">
         <button onClick={() => void selectWallets(walletRows.map((w) => w.pubkey))}>Select All</button>
-        <button onClick={() => void selectWallets(walletRows.filter((w) => (w.sol ?? 0) > 0).map((w) => w.pubkey))}>Select All with Balance</button>
+        <button onClick={() => void selectWallets(walletRows.filter((w) => (w.sol ?? 0) > 0).map((w) => w.pubkey))}>Select All With Balance</button>
         <span class="it-spacer" />
         <button class="it-icon" title="Add or manage wallets" onClick={() => void send({ type: 'OPEN_OPTIONS', section: 'wallet' })}>
           <Icon.gear />
