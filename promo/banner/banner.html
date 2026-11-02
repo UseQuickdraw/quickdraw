@@ -1,0 +1,158 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&family=Instrument+Serif:ital@0;1&display=block" rel="stylesheet">
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+</head>
+<body>
+<canvas id="c" width="1500" height="500"></canvas>
+<script>
+// Quickdraw X header, at X's own 1500x500. In the teaser's style: black, soft
+// green/white glows, the logo and wordmark on the left, the real panel on the right.
+// X lays the profile picture over the bottom-left, and phones crop the top and bottom
+// a little, so everything that matters sits in the middle band and right of it.
+const S = 1;                       // X's own size: it re-encodes anything larger
+const W = 1500, H = 500;
+const GREEN = '#44a257';
+const c = document.getElementById('c');
+const g = c.getContext('2d');
+g.scale(S, S);
+const logo = new Image();
+logo.src = '../../docs/logo-rounded.png';
+const panel = new Image();
+// A 4x capture of the panel, so it stays crisp drawn small and tilted.
+panel.src = 'panel-4x.png';
+
+const SANS = (px, w = 500) => `${w} ${px}px Inter, system-ui, sans-serif`;
+const SERIF = (px) => `italic 400 ${px}px "Instrument Serif", Georgia, serif`;
+
+function roundRect(x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+
+function glows() {
+  g.save();
+  g.filter = 'blur(70px)';
+  const blobs = [
+    { x: 260, y: 560, rx: 420, ry: 120, color: 'rgba(225, 240, 232, 0.42)' },
+    { x: 760, y: 590, rx: 300, ry: 90, color: 'rgba(68, 162, 87, 0.30)' },
+    { x: 1220, y: 540, rx: 520, ry: 170, color: 'rgba(68, 162, 87, 0.85)' },
+    { x: 1180, y: 60, rx: 260, ry: 120, color: 'rgba(68, 162, 87, 0.18)' },
+  ];
+  for (const b of blobs) {
+    g.fillStyle = b.color;
+    g.beginPath();
+    g.ellipse(b.x, b.y, b.rx, b.ry, 0, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.restore();
+}
+
+/** The real panel, tilted a little and running off the bottom edge. */
+function drawPanel() {
+  const w = 300;
+  const h = w * (panel.height / panel.width);
+  g.save();
+  g.translate(1278, 92);
+  g.rotate(-0.06);
+  g.shadowColor = 'rgba(0,0,0,0.8)';
+  g.shadowBlur = 50;
+  g.shadowOffsetY = 18;
+  roundRect(-w / 2 + 1, 1, w - 2, h - 2, 8);
+  g.fillStyle = '#1c1c1c';
+  g.fill();
+  g.shadowBlur = 0;
+  g.shadowOffsetY = 0;
+  roundRect(-w / 2 + 1, 1, w - 2, h - 2, 8);
+  g.clip();
+  g.drawImage(panel, -w / 2, 0, w, h);
+  g.restore();
+}
+
+function draw() {
+  // The logo and the 4x panel are scaled down: smooth them properly.
+  g.imageSmoothingQuality = 'high';
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, W, H);
+  glows();
+  drawPanel();
+
+  // Left block: logo + wordmark, the tagline, and a line of facts.
+  // Clear of the profile picture X lays over the bottom-left.
+  const x = 440;
+  const iconSize = 92;
+  g.drawImage(logo, x, 150, iconSize, iconSize);
+  g.font = SANS(84, 700);
+  g.fillStyle = '#ffffff';
+  g.textBaseline = 'middle';
+  g.fillText('Quickdraw', x + iconSize + 26, 150 + iconSize / 2 + 3);
+
+  g.textBaseline = 'alphabetic';
+  let tx = x + 2;
+  g.font = SERIF(44);
+  g.fillStyle = 'rgba(255,255,255,0.95)';
+  g.fillText('Self-custody', tx, 312);
+  tx += g.measureText('Self-custody').width + 12;
+  g.font = SANS(36, 500);
+  g.fillStyle = 'rgba(255,255,255,0.78)';
+  g.fillText('trading panel', tx, 312);
+
+  // Facts, separated by the teaser's green diamonds.
+  const facts = ['0% platform fee', 'your keys', 'Axiom · GMGN · Padre'];
+  g.font = SANS(24, 500);
+  let fx = x + 2;
+  facts.forEach((f, i) => {
+    if (i > 0) {
+      g.save();
+      g.translate(fx + 10, 366);
+      g.rotate(Math.PI / 4);
+      g.fillStyle = GREEN;
+      g.fillRect(-4.5, -4.5, 9, 9);
+      g.restore();
+      fx += 34;
+    }
+    g.fillStyle = 'rgba(255,255,255,0.6)';
+    g.fillText(f, fx, 374);
+    fx += g.measureText(f).width + 12;
+  });
+}
+
+window.ready = (async () => {
+  await document.fonts.load(SANS(84, 700));
+  await document.fonts.load(SANS(36));
+  await document.fonts.load(SERIF(44));
+  await document.fonts.ready;
+  for (const img of [logo, panel]) if (!img.complete) await new Promise((r) => (img.onload = r));
+  draw();
+  return true;
+})();
+
+/** The banner as a PNG data URL (1500x500). */
+window.png = () => c.toDataURL('image/png');
+/** The same with X's profile-picture area and phone crop outlined, to check the layout. */
+window.guides = () => {
+  draw();
+  g.save();
+  g.strokeStyle = 'rgba(255,80,80,0.9)';
+  g.lineWidth = 2;
+  g.beginPath();
+  g.arc(214, 548, 172, 0, Math.PI * 2); // where X lays the avatar (measured on a live profile)
+  g.stroke();
+  g.setLineDash([8, 8]);
+  g.strokeRect(0, 60, W, H - 120);       // what narrow phone layouts keep
+  g.restore();
+  const url = c.toDataURL('image/jpeg', 0.85);
+  draw();
+  return url;
+};
+</script>
+</body>
+</html>

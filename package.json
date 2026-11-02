@@ -1,0 +1,46 @@
+{
+  "name": "quickdraw",
+  "version": "0.1.0",
+  "description": "Self-custody, open-source one-click trading panel for Solana memecoin terminals (Axiom, GMGN, Padre). Your keys, your RPC, 0% platform fee.",
+  "keywords": ["solana", "memecoin", "trading", "browser-extension", "self-custody", "pump.fun", "axiom"],
+  "homepage": "https://github.com/UseQuickdraw/quickdraw#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/UseQuickdraw/quickdraw.git" },
+  "bugs": "https://github.com/UseQuickdraw/quickdraw/issues",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "icons": "node scripts/make-icons.mjs",
+    "postinstall": "wxt prepare",
+    "teaser": "node promo/teaser/render.mjs",
+    "banner": "node promo/banner/render.mjs"
+  },
+  "dependencies": {
+    "@pump-fun/pump-sdk": "4.3.1",
+    "@solana/spl-token": "0.4.15",
+    "@solana/web3.js": "1.99.0",
+    "bn.js": "5.2.5",
+    "bs58": "6.0.0",
+    "buffer": "6.0.3",
+    "preact": "10.29.8",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "2.10.6",
+    "@types/bn.js": "5.2.0",
+    "typescript": "5.9.3",
+    "vitest": "5.0.5",
+    "wxt": "0.21.5"
+  }
+}

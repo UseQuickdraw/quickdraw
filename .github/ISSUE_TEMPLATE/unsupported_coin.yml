@@ -1,0 +1,27 @@
+name: Coin not supported
+description: The panel can't trade a coin, or says it isn't supported yet
+labels: [market support]
+body:
+  - type: input
+    id: token
+    attributes:
+      label: Token address
+    validations:
+      required: true
+  - type: input
+    id: message
+    attributes:
+      label: What the panel says
+      placeholder: "e.g. Venue not supported yet"
+    validations:
+      required: true
+  - type: input
+    id: market
+    attributes:
+      label: Where it trades, if you know
+      description: The pair and platform the site shows, such as "RETARD/LLY · Raydium CLMM".
+  - type: dropdown
+    id: site
+    attributes:
+      label: Site
+      options: [Axiom, GMGN, Padre, Other]

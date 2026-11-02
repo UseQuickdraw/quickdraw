@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in Quickdraw doesn't work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste your secret key, backup file, or RPC URLs that contain an API key.
+        Security problems: please use private reporting (Security → Report a vulnerability) instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you clicked, what you expected, and what happened instead. Screenshots of the panel and pop-up help.
+    validations:
+      required: true
+  - type: input
+    id: token
+    attributes:
+      label: Token address
+      description: If it's about a specific coin.
+  - type: dropdown
+    id: site
+    attributes:
+      label: Site
+      options: [Axiom, GMGN, Padre, Other]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Quickdraw version and browser
+      placeholder: 0.1.0, Chrome 140
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options: [Dry run, Live, Preview]

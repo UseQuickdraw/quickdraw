@@ -1,0 +1,475 @@
+/* Lives inside a Shadow DOM: nothing here leaks into the host page or back. */
+.it-root {
+  /* Axiom's dark theme: secondary/tertiary backgrounds, strokes and a white accent. */
+  --accent: #ffffff;
+  --bg: #1c1c1c;
+  --bg2: #212121;
+  --fg: #ffffff;
+  --muted: #8a8a8a;
+  --border: #333333;
+  --stroke: #3b3b3b;
+  --buy: #26d6a1;
+  --sell: #ef4f7c;
+  --tip: #f1c14e;
+  --warn: #e8a33d;
+  position: fixed;
+  z-index: 45; /* overridden per the "Panel layer" setting */
+  transform-origin: top left;
+  font: 13px/1.3 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--fg);
+  user-select: none;
+}
+.it-light {
+  --bg: #ffffff;
+  --bg2: #f3f3f6;
+  --fg: #16161d;
+  --muted: #6a6a78;
+  --border: #dcdce4;
+  --buy: #0c9e72;
+  --sell: #d9345f;
+  --tip: #b88a12;
+}
+
+.it-panel {
+  width: 330px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.it-compact .it-panel { width: 286px; }
+/* A background image: over the panel colour, under everything on it, at the chosen opacity. */
+.it-panel { isolation: isolate; }
+.it-bgimage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+}
+/* Being moved: lifts slightly and turns see-through, so the chart shows beneath. */
+.it-panel {
+  transition: transform 0.12s ease-out, opacity 0.12s ease-out;
+}
+.it-panel.it-dragging {
+  transform: scale(1.03);
+  opacity: 0.75;
+}
+
+/* Dragged to a size: the button rows share the height and grow with it. */
+.it-panel { position: relative; }
+.it-sized .it-panel { display: flex; flex-direction: column; }
+.it-sized .it-side { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; }
+.it-sized .it-rows { flex: 1 1 0; min-height: 28px; overflow: hidden; }
+.it-sized .it-grid { flex: 1 1 0; min-height: 28px; grid-auto-rows: 1fr; }
+.it-sized .it-grid button { height: auto; }
+.it-rz { position: absolute; z-index: 3; touch-action: none; }
+.it-rz-e { top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; }
+.it-rz-s { left: 0; bottom: 0; width: 100%; height: 6px; cursor: ns-resize; }
+.it-rz-se { right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+
+button { font: inherit; color: inherit; cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.4; }
+input,
+select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  outline: none;
+  min-width: 0;
+}
+input:focus,
+select:focus { border-color: var(--accent); }
+.it-svg { width: 14px; height: 14px; flex: none; vertical-align: -2px; }
+/* The Solana mark is wider than tall; keep its shape at text size. */
+.it-svg.it-sol { width: 12px; height: 11px; vertical-align: -1px; }
+.it-muted { color: var(--muted); }
+
+/* ---------------------------------------------------------------- header */
+.it-header {
+  position: relative;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 8px 8px;
+  cursor: grab;
+}
+.it-header:active { cursor: grabbing; }
+/* Six-dot drag handle centred on the top edge. */
+.it-grip {
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  width: 14px;
+  height: 5px;
+  margin-left: -7px;
+  background-image: radial-gradient(circle, var(--muted) 1px, transparent 1.2px);
+  background-size: 5px 2.5px;
+  opacity: 0.7;
+}
+.it-tabs { display: flex; gap: 0; margin: 0 2px; min-width: 0; }
+/* Named tabs take the room they need and push the icons after them along; a very narrow panel cuts them short. */
+.it-tabs button {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 3px 6px;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 15px;
+}
+.it-tabs button:hover { color: var(--fg); }
+.it-tabs button.on { color: var(--fg); }
+.it-tabs button.it-new { opacity: 0.45; }
+/* Named tabs are a touch smaller; the one in use never gets cut short, the others give way first. */
+.it-tabs button.it-named { font-size: 13.5px; padding: 3px 5px; }
+.it-tabs button.on { flex-shrink: 0; }
+.it-spacer { flex: 1; }
+.it-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--muted);
+}
+.it-icon:hover,
+.it-icon.on { color: var(--fg); }
+.it-icon.on { background: var(--bg2); }
+.it-icon .it-svg { width: 17px; height: 17px; }
+.it-round {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--border);
+  color: var(--muted);
+}
+.it-round:hover { color: var(--fg); }
+.it-wallet {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+.it-wallet .it-svg { color: var(--muted); }
+/* Mode by color: amber = dry run, white = live, grey = preview (tooltip says which). */
+.it-wallet { border-color: var(--stroke); }
+.it-wallet.it-mode-dry .it-svg { color: var(--warn); }
+.it-wallet.it-mode-live .it-svg { color: var(--fg); }
+
+.it-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--bg2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.it-badge.it-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 60%, transparent); }
+.it-err { color: var(--warn); font-size: 11px; padding: 2px 12px 0; user-select: text; }
+
+/* --------------------------------------------------------- buy / sell */
+.it-side { padding: 8px 12px 6px; --c: var(--buy); }
+.it-sell { --c: var(--sell); border-top: 1px solid var(--border); }
+.it-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.it-h { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; color: var(--fg); }
+.it-h small { color: var(--muted); font-size: 13px; font-weight: 600; }
+.it-h .it-svg { color: var(--muted); width: 13px; height: 13px; }
+.it-right { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.it-right > span { display: inline-flex; align-items: center; gap: 4px; }
+.it-head .it-right.it-previewing { color: #c8c8c8; }
+/* Narrow panels: the header stays on one line, and the holding (amount + ticker) gives way first. */
+.it-head { gap: 8px; }
+.it-head .it-h { flex: none; }
+.it-head .it-right { min-width: 0; white-space: nowrap; }
+.it-head .it-right > span { flex: none; }
+.it-head .it-right > .it-hold { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.it-mini { display: inline-flex; background: none; border: none; padding: 0 0 0 2px; color: var(--muted); }
+.it-mini:hover { color: var(--fg); }
+
+/* As on Axiom: each row of four is an outlined strip in the side's colour,
+   1px gaps over that colour drawing the dividers. */
+.it-rows { display: flex; flex-direction: column; gap: 5px; }
+.it-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: color-mix(in srgb, var(--c) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c) 70%, transparent);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.it-grid button {
+  height: 32px;
+  border: none;
+  border-radius: 0;
+  background: var(--bg);
+  color: var(--c);
+  font-size: 14px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.it-grid button:not(:disabled):hover { background: color-mix(in srgb, var(--c) 12%, var(--bg)); }
+.it-grid button:not(:disabled):active { background: color-mix(in srgb, var(--c) 24%, var(--bg)); }
+/* Fade the label, not the cell: a transparent cell would show the divider color. */
+.it-grid button:disabled { opacity: 1; color: color-mix(in srgb, var(--c) 35%, transparent); }
+/* Editing preset values (the pencil): every cell turns grey and editable. */
+.it-grid:has(.it-preset-edit) { gap: 2px; background: #e6e6e6; border: 2px solid #e6e6e6; }
+.it-preset-edit {
+  height: 32px;
+  border: none;
+  border-radius: 0;
+  padding: 0 4px;
+  background: #616161;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.it-preset-edit:focus { background: #6e6e6e; }
+.it-sized .it-preset-edit { height: auto; }
+.it-grid button sup { font-size: 9px; color: var(--muted); margin-left: 1px; }
+.it-compact .it-grid button { height: 28px; font-size: 13px; }
+/* Rounded (Display → Button shape): separate pills, each outlined in the side's colour. */
+.it-rounded .it-grid:not(:has(.it-preset-edit)) { gap: 6px; background: none; border: none; overflow: visible; }
+.it-rounded .it-grid:not(:has(.it-preset-edit)) button {
+  border: 1px solid color-mix(in srgb, var(--c) 70%, transparent);
+  border-radius: 999px;
+}
+
+.it-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 9px; }
+/* A narrow sell row has no room for MEV next to Sell Init.: it drops out (the buy row still shows it). */
+.it-sell .it-row { container-type: inline-size; }
+@container (max-width: 300px) {
+  .it-mev { display: none !important; }
+}
+.it-fees {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.it-fees span { display: inline-flex; align-items: center; gap: 4px; }
+.it-fees-btn { flex: 1; min-width: 0; background: none; border: none; padding: 0; text-align: left; white-space: nowrap; overflow: hidden; }
+.it-fees-btn:hover,
+.it-fees-btn.on { color: var(--fg); }
+.it-tierlbl {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.it-tip { color: var(--tip); }
+.it-tip .it-svg:last-child:not(:first-child) { width: 12px; height: 12px; }
+.it-init {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--sell);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------- wallet picker */
+.it-wallet.on { background: var(--bg2); }
+.it-wallets {
+  position: absolute;
+  z-index: 4;
+  top: 46px;
+  left: 8px;
+  right: 8px;
+  max-height: calc(100% - 56px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--stroke);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.it-wallets-bar { display: flex; align-items: center; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); }
+.it-wallets-bar > button:not(.it-icon) {
+  border: none;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: var(--bg2);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+.it-wallets-bar > button:not(.it-icon):hover { background: var(--border); }
+.it-wallets-list { overflow-y: auto; }
+.it-wallet-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.it-wallet-row:last-child { border-bottom: none; }
+.it-wallet-row:hover { background: color-mix(in srgb, var(--fg) 5%, var(--bg)); }
+.it-wallet-row input {
+  appearance: none;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--stroke);
+  border-radius: 4px;
+  background: var(--bg2);
+  cursor: pointer;
+}
+.it-wallet-row input:checked { background: var(--accent); border-color: var(--accent); box-shadow: inset 0 0 0 3px var(--bg2); }
+.it-wallet-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.it-wallet-id b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.it-wallet-id small { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); font: 11px ui-monospace, monospace; }
+.it-wallet-sol {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------- dropdowns */
+.it-dropdown {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg2);
+}
+.it-fee-editor { margin: 0 12px 4px; }
+/* A sized panel can't grow, so the editor floats over the buttons (like the wallet picker) instead of squashing them. */
+.it-sized .it-fee-editor {
+  position: absolute;
+  z-index: 4;
+  top: 46px;
+  left: 12px;
+  right: 12px;
+  margin: 0;
+  max-height: calc(100% - 56px);
+  overflow-y: auto;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+.it-dd-row { display: grid; grid-template-columns: 34px 1fr; align-items: center; }
+.it-dd-row > span { color: var(--muted); font-size: 12px; }
+.it-fee-editor .it-dd-row { grid-template-columns: 60px 1fr; }
+.it-tier { flex: none; display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; justify-self: start; }
+.it-tier button { background: none; border: none; padding: 2px 10px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.it-tier button.on { background: var(--accent); color: var(--bg); }
+.it-check { display: inline-flex; align-items: center; gap: 6px; color: var(--fg); }
+.it-note { color: var(--muted); font-size: 11px; }
+
+/* ------------------------------------------------------------- footer */
+.it-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 4px;
+  padding: 9px 8px 10px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 80ms;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.it-stats:hover { background: color-mix(in srgb, var(--fg) 5%, var(--bg)); }
+.it-stats span { display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; }
+.it-stats span + span { border-left: 1px solid var(--border); }
+.it-stats .it-buy-c { color: var(--buy); }
+.it-stats .it-sell-c { color: var(--sell); }
+.it-saved {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 12px 9px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* Collapsed pill (only when the site has no toolbar button) */
+.it-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 6px 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  font-weight: 600;
+  cursor: grab;
+  touch-action: none;
+}
+.it-pill:active { cursor: grabbing; }
+.it-pill .it-svg { color: var(--accent); }
+
+/* Toasts */
+.it-toasts { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; width: 330px; }
+/* Pinned to the window (the "Pop-up position" setting); the newest sits nearest the edge. */
+.it-toasts[class*='it-toasts-'] { position: fixed; margin: 0; max-width: calc(100vw - 32px); }
+.it-toasts-top-left, .it-toasts-top-center, .it-toasts-top-right { top: 16px; flex-direction: column-reverse; }
+.it-toasts-bottom-left, .it-toasts-bottom-center, .it-toasts-bottom-right { bottom: 16px; }
+.it-toasts-top-left, .it-toasts-bottom-left { left: 16px; }
+.it-toasts-top-right, .it-toasts-bottom-right { right: 16px; }
+.it-toasts-top-center, .it-toasts-bottom-center { left: 50%; transform: translateX(-50%); }
+.it-toasts[class*='it-toasts-'] .it-toast { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); }
+.it-toast {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: 6px;
+  padding: 7px 10px;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  font-size: 12px;
+  user-select: text;
+}
+.it-toast a { color: var(--accent); text-decoration: none; white-space: nowrap; }
+.it-toast small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+.it-toast.it-success { border-left-color: var(--buy); }
+.it-toast.it-error { border-left-color: var(--sell); }
+.it-toast { cursor: pointer; }

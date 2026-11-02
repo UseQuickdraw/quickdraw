@@ -1,0 +1,456 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&family=Instrument+Serif:ital@0;1&display=block" rel="stylesheet">
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// Quickdraw teaser: every frame is a pure function of time t (seconds), so it renders
+// identically whether previewed as stills or encoded frame by frame.
+//
+//   0.6–3.6   "The blockchain was founded on ◆ self-custody"
+//   3.9–6.4   "It's time to own your trades"
+//   6.7–12.4  the real panel (panel.png): a cursor buys 0.5 SOL, then sells 50%, with toasts
+//   12.8–     the logo, "Quickdraw", "Self-custody trading panel", fade out
+const W = 1920, H = 1080, FPS = 30, DURATION = 17.5;
+const GREEN = '#44a257';
+const c = document.getElementById('c');
+const g = c.getContext('2d');
+
+const logo = new Image();
+logo.src = '../../docs/logo-rounded.png';
+/** The live panel captured at 2x (panel.png), and its buttons in CSS pixels (panel.json). */
+const panel = new Image();
+panel.src = 'panel.png';
+const PANEL = { w: 332, h: 371.75, buttons: { '0.5': { x: 242.75, y: 86.5, w: 75.25, h: 32 }, '50%': { x: 166.5, y: 227.25, w: 75.25, h: 32 } } };
+/** The sell header's holding text, in the 2x image: replaced as the demo trades. */
+const HOLDING = { x: 372, y: 396, w: 276, h: 44, right: 640, base: 428 };
+/** The buy header's wallet balance: the Solana mark at 548-571 and its "0" at 580-593 (y 124-145). */
+const WALLET = { icon: { x: 548, y: 122, w: 24, h: 26 }, cover: { x: 540, y: 118, w: 62, h: 34 }, right: 600, base: 143 };
+/** The footer's four figures (bought, sold, holding, PnL): each column between the dividers, its Solana mark, and colour. */
+const FOOTER = { y: 686, h: 40, base: 715, iconY: 692, iconH: 30, cells: [
+  { from: 20, to: 174, icon: 74, color: '#26d6a1' },
+  { from: 180, to: 330, icon: 232, color: '#ef4f7c' },
+  { from: 336, to: 488, icon: 388, color: '#ffffff' },
+  { from: 494, to: 650, icon: 502, color: '#26d6a1' },
+] };
+let panelBg = '#1c1c1c';
+
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const ease = (x) => 1 - Math.pow(1 - clamp(x), 3);
+const easeInOut = (x) => { x = clamp(x); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const back = (x) => { x = clamp(x); const s = 1.70158; return 1 + (s + 1) * Math.pow(x - 1, 3) + s * Math.pow(x - 1, 2); };
+/** 0→1 over [a, a+fin], 1 until b, 1→0 over [b, b+fout]. */
+const window_ = (t, a, b, fin = 0.45, fout = 0.4) => (t < a || t > b + fout ? 0 : t < a + fin ? ease((t - a) / fin) : t <= b ? 1 : 1 - ease((t - b) / fout));
+const lerp = (a, b, x) => a + (b - a) * x;
+
+const SANS = (px, w = 500) => `${w} ${px}px Inter, system-ui, sans-serif`;
+const SERIF = (px) => `italic 400 ${px}px "Instrument Serif", Georgia, serif`;
+
+/** A line of mixed runs, centred. Each run: { text, font, color } or { diamond: true }. */
+function line(runs, cx, cy, alpha, blur, rise = 0) {
+  if (alpha <= 0) return;
+  g.save();
+  g.globalAlpha = alpha;
+  g.filter = blur > 0.05 ? `blur(${blur}px)` : 'none';
+  g.textBaseline = 'alphabetic';
+  const gap = 14;
+  const widths = runs.map((r) => {
+    if (r.diamond) return 18;
+    g.font = r.font;
+    return g.measureText(r.text).width;
+  });
+  const total = widths.reduce((a, b) => a + b, 0) + gap * (runs.length - 1);
+  let x = cx - total / 2;
+  const y = cy + 14 + rise;
+  runs.forEach((r, i) => {
+    if (r.diamond) {
+      g.save();
+      g.translate(x + 9, y - 12);
+      g.rotate(Math.PI / 4);
+      g.fillStyle = GREEN;
+      g.fillRect(-5.5, -5.5, 11, 11);
+      g.restore();
+    } else {
+      g.font = r.font;
+      g.fillStyle = r.color;
+      g.fillText(r.text, x, y);
+    }
+    x += widths[i] + gap;
+  });
+  g.restore();
+}
+
+/** Soft glows rising along the bottom edge: white-ish left, green right. */
+function aurora(t, strength) {
+  if (strength <= 0) return;
+  g.save();
+  g.globalAlpha = strength;
+  g.filter = 'blur(90px)';
+  const drift = Math.sin(t * 0.6) * 40;
+  const blobs = [
+    { x: 380 + drift, y: 1130, rx: 560, ry: 170, color: 'rgba(225, 240, 232, 0.55)' },
+    { x: 980 - drift * 0.5, y: 1170, rx: 380, ry: 120, color: 'rgba(68, 162, 87, 0.35)' },
+    { x: 1560 - drift, y: 1110, rx: 620, ry: 200, color: 'rgba(68, 162, 87, 0.95)' },
+  ];
+  for (const b of blobs) {
+    g.fillStyle = b.color;
+    g.beginPath();
+    g.ellipse(b.x, b.y, b.rx, b.ry, 0, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.restore();
+}
+
+function roundRect(x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+
+// ------------------------------------------------------------ the panel demo
+
+/** Where the panel sits: 2x image pixels -> video pixels. */
+const PANEL_H = 760;
+const K = PANEL_H / (PANEL.h * 2);
+const PANEL_W = PANEL.w * 2 * K;
+const PX = W / 2 - PANEL_W / 2;
+const PY = 70;
+/** A button's centre in video pixels. */
+const buttonCentre = (label) => {
+  const b = PANEL.buttons[label];
+  return { x: PX + (b.x + b.w / 2) * 2 * K, y: PY + (b.y + b.h / 2) * 2 * K, box: b };
+};
+
+const BUY = buttonCentre('0.5');
+const SELL = buttonCentre('50%');
+const T_BUY = 8.45;   // click times
+const T_SELL = 10.35;
+
+/** The cursor's path: in from the lower right, to the buy button, to the sell button, away. */
+function cursorAt(t) {
+  const start = { x: 1600, y: 960 };
+  const away = { x: 1500, y: 980 };
+  if (t < 7.5) return null;
+  if (t < 8.35) { const k = easeInOut((t - 7.5) / 0.85); return { x: lerp(start.x, BUY.x + 6, k), y: lerp(start.y, BUY.y + 8, k) }; }
+  if (t < 9.55) return { x: BUY.x + 6, y: BUY.y + 8 };
+  if (t < 10.25) { const k = easeInOut((t - 9.55) / 0.7); return { x: lerp(BUY.x + 6, SELL.x + 6, k), y: lerp(BUY.y + 8, SELL.y + 8, k) }; }
+  if (t < 11.2) return { x: SELL.x + 6, y: SELL.y + 8 };
+  if (t < 12.0) { const k = easeInOut((t - 11.2) / 0.8); return { x: lerp(SELL.x + 6, away.x, k), y: lerp(SELL.y + 8, away.y, k) }; }
+  return null;
+}
+
+function drawCursor(t, alpha) {
+  const p = cursorAt(t);
+  if (!p || alpha <= 0) return;
+  // A press: the pointer dips at each click.
+  const press = Math.max(1 - Math.abs(t - T_BUY) / 0.12, 1 - Math.abs(t - T_SELL) / 0.12, 0);
+  const s = 1.55 * (1 - 0.12 * press);
+  g.save();
+  g.globalAlpha = alpha;
+  g.translate(p.x, p.y);
+  g.scale(s, s);
+  g.beginPath();
+  g.moveTo(0, 0);
+  g.lineTo(0, 22);
+  g.lineTo(5.5, 16.8);
+  g.lineTo(9.6, 25.6);
+  g.lineTo(13.2, 24);
+  g.lineTo(9.2, 15.4);
+  g.lineTo(16.6, 15.4);
+  g.closePath();
+  g.fillStyle = '#ffffff';
+  g.strokeStyle = '#000000';
+  g.lineWidth = 1.4;
+  g.shadowColor = 'rgba(0,0,0,0.5)';
+  g.shadowBlur = 8;
+  g.fill();
+  g.shadowBlur = 0;
+  g.stroke();
+  g.restore();
+}
+
+/** A click: the button lights up and a ring spreads from it. */
+function clickFx(t, at, b, color) {
+  const dt = t - at;
+  if (dt < 0 || dt > 0.6) return;
+  const box = b.box;
+  g.save();
+  g.globalAlpha = (1 - dt / 0.6) * 0.5;
+  g.fillStyle = color;
+  g.fillRect(PX + box.x * 2 * K, PY + box.y * 2 * K, box.w * 2 * K, box.h * 2 * K);
+  g.restore();
+  g.save();
+  g.globalAlpha = 1 - dt / 0.6;
+  g.strokeStyle = color;
+  g.lineWidth = 3;
+  g.beginPath();
+  g.arc(b.x, b.y, 14 + dt * 120, 0, Math.PI * 2);
+  g.stroke();
+  g.restore();
+}
+
+/** What the panel shows as the demo trades: before, after the buy, after the sell. */
+function state(t) {
+  if (t >= T_SELL + 0.55) return { wallet: '12.16', holding: '605K MEIMEI  •  $50  •  0.26 SOL', footer: ['0.5', '0.26', '0.26', '+0.02(+4%)'] };
+  if (t >= T_BUY + 0.55) return { wallet: '11.9', holding: '1.21M MEIMEI  •  $96  •  0.5 SOL', footer: ['0.5', '0', '0.5', '+0(+0%)'] };
+  return { wallet: '12.4', holding: null, footer: null };
+}
+
+/** A toast like the panel's own, under it. */
+function toast(t, at, text, sub) {
+  const a = window_(t, at, at + 1.35, 0.3, 0.35);
+  if (a <= 0) return;
+  const w = 820, h = 92;
+  const x = W / 2 - w / 2;
+  const y = PY + PANEL_H + 26 + (1 - a) * 20;
+  g.save();
+  g.globalAlpha = a;
+  g.shadowColor = 'rgba(0,0,0,0.6)';
+  g.shadowBlur = 30;
+  roundRect(x, y, w, h, 14);
+  g.fillStyle = '#1c1c1c';
+  g.fill();
+  g.shadowBlur = 0;
+  g.strokeStyle = '#333333';
+  g.lineWidth = 2;
+  g.stroke();
+  g.fillStyle = '#26d6a1';
+  g.fillRect(x, y + 14, 6, h - 28);
+  g.font = SANS(27, 600);
+  g.fillStyle = '#ffffff';
+  g.textBaseline = 'alphabetic';
+  g.fillText(text, x + 34, y + 40);
+  g.font = SANS(22, 500);
+  g.fillStyle = '#8a8a8a';
+  g.fillText(sub, x + 34, y + 72);
+  g.font = SANS(22, 500);
+  g.fillStyle = '#5fa8ff';
+  g.textAlign = 'right';
+  g.fillText('Solscan ↗', x + w - 30, y + 40);
+  g.restore();
+}
+
+function drawPanel(t) {
+  const a = window_(t, 6.7, 12.1, 0.7, 0.55);
+  if (a <= 0 || !panel.complete) return;
+  g.save();
+  g.globalAlpha = a;
+  const s = 0.94 + 0.06 * a;
+  g.translate(W / 2, PY + PANEL_H / 2 + (1 - a) * 40);
+  g.scale(s, s);
+  g.translate(-W / 2, -(PY + PANEL_H / 2));
+  // The shadow from the panel's shape, then the capture clipped to it (its corners show the page behind).
+  const R = 8 * 2 * K;
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,0.75)';
+  g.shadowBlur = 60;
+  g.shadowOffsetY = 24;
+  roundRect(PX + 1, PY + 1, PANEL_W - 2, PANEL_H - 2, R);
+  g.fillStyle = panelBg;
+  g.fill();
+  g.restore();
+  g.save();
+  roundRect(PX + 1, PY + 1, PANEL_W - 2, PANEL_H - 2, R);
+  g.clip();
+  g.drawImage(panel, PX, PY, PANEL_W, PANEL_H);
+  g.restore();
+
+  const st = state(t);
+  const at = (x, y) => [PX + x * K, PY + y * K];
+  g.textBaseline = 'alphabetic';
+  // The wallet's SOL balance, right-aligned before the expand icon, its Solana mark moved along with it.
+  {
+    g.fillStyle = panelBg;
+    g.fillRect(...at(WALLET.cover.x - 30, WALLET.cover.y), (WALLET.cover.w + 30) * K, WALLET.cover.h * K);
+    g.font = SANS(25 * K, 600);
+    g.fillStyle = '#ffffff';
+    g.textAlign = 'right';
+    g.fillText(st.wallet, ...at(WALLET.right, WALLET.base));
+    const textW = g.measureText(st.wallet).width / K;
+    const ix = WALLET.right - textW - 9 - WALLET.icon.w;
+    const i = WALLET.icon;
+    g.drawImage(panel, i.x, i.y, i.w, i.h, ...at(ix, i.y), i.w * K, i.h * K);
+    g.textAlign = 'left';
+  }
+  if (st.holding) {
+    g.fillStyle = panelBg;
+    g.fillRect(...at(HOLDING.x, HOLDING.y), HOLDING.w * K, HOLDING.h * K);
+    g.font = SANS(24 * K, 600);
+    g.fillStyle = '#ffffff';
+    g.textAlign = 'right';
+    g.fillText(st.holding, ...at(HOLDING.right, HOLDING.base));
+    g.textAlign = 'left';
+  }
+  // Bought / sold / holding / PnL along the bottom.
+  if (st.footer) {
+    g.font = SANS(24 * K, 600);
+    FOOTER.cells.forEach((cell, i) => {
+      // Mark and figure centred in the column, as the panel lays them out.
+      const text = st.footer[i];
+      // The PnL column is the narrowest for its figure: a touch smaller, as the panel fits it.
+      g.font = SANS((i === 3 ? 21 : 24) * K, 600);
+      const textW = g.measureText(text).width / K;
+      const groupW = 24 + 9 + textW;
+      const start = (cell.from + cell.to) / 2 - groupW / 2;
+      g.fillStyle = panelBg;
+      g.fillRect(...at(cell.from, FOOTER.y), (cell.to - cell.from) * K, FOOTER.h * K);
+      g.drawImage(panel, cell.icon, FOOTER.iconY, 24, FOOTER.iconH, ...at(start, FOOTER.iconY), 24 * K, FOOTER.iconH * K);
+      g.fillStyle = cell.color;
+      g.fillText(text, ...at(start + 24 + 9, FOOTER.base));
+    });
+  }
+  clickFx(t, T_BUY, BUY, '#26d6a1');
+  clickFx(t, T_SELL, SELL, '#ef4f7c');
+  g.restore();
+
+  toast(t, T_BUY + 0.45, 'Landed in slot 381,104,552  ·  0.4s after send', 'bought 1.21M MEIMEI for 0.5 SOL  ·  no platform fee');
+  toast(t, T_SELL + 0.45, 'Landed in slot 381,104,571  ·  0.4s after send', 'sold 605K MEIMEI for 0.26 SOL  ·  no platform fee');
+  drawCursor(t, a);
+}
+
+// ------------------------------------------------------------------- frames
+
+function draw(t) {
+  g.save();
+  g.filter = 'none';
+  g.globalAlpha = 1;
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, W, H);
+  g.restore();
+
+  const cx = W / 2, cy = H / 2;
+  const px = 46;
+
+  // 1. "The blockchain was founded on ◆ self-custody"
+  {
+    const a = window_(t, 0.6, 3.2);
+    line(
+      [
+        { text: 'The blockchain was founded on', font: SANS(px), color: '#f2f2f2' },
+        { diamond: true },
+        { text: 'self-custody', font: SERIF(px + 8), color: '#f2f2f2' },
+      ],
+      cx, cy, a, (1 - a) * 12, (1 - a) * 10,
+    );
+  }
+  // 2. "It's time to own your trades"
+  {
+    const a = window_(t, 3.9, 6.0);
+    line(
+      [
+        { text: 'It’s time to', font: SANS(px), color: '#8fdc9d' },
+        { text: 'own', font: SERIF(px + 8), color: 'rgba(68, 162, 87, 0.95)' },
+        { text: 'your trades', font: SANS(px), color: '#8fdc9d' },
+      ],
+      cx, cy, a, (1 - a) * 12, (1 - a) * 10,
+    );
+  }
+
+  // Glows arrive with the panel and stay until the end.
+  aurora(t, ease((t - 6.4) / 1.2) * (1 - ease((t - 16.3) / 1.0)));
+
+  // 3. The panel at work.
+  drawPanel(t);
+
+  // 4. The hand pops in, then slides left as the wordmark reveals; the tagline under it.
+  const T0 = 12.8;
+  if (t >= T0 && logo.complete) {
+    const pop = back((t - T0) / 0.55);
+    const out = 1 - ease((t - 16.2) / 0.9);
+    const size = 128 * pop;
+    const slide = easeInOut((t - (T0 + 0.9)) / 0.75);
+    g.save();
+    g.font = SANS(108, 700);
+    const word = 'Quickdraw';
+    const wordW = g.measureText(word).width;
+    const gap = 34;
+    const groupW = 128 + gap + wordW;
+    const iconX = cx + slide * (64 - groupW / 2);
+    g.globalAlpha = clamp(pop) * out;
+    g.translate(iconX, cy - 6);
+    g.rotate((1 - pop) * -0.6);
+    g.drawImage(logo, -size / 2, -size / 2, size, size);
+    g.restore();
+
+    const reveal = ease((t - (T0 + 1.1)) / 0.8);
+    if (reveal > 0) {
+      const textX = iconX + 64 + gap;
+      g.save();
+      g.beginPath();
+      g.rect(textX - 8, cy - 120, (wordW + 16) * reveal, 240);
+      g.clip();
+      g.globalAlpha = out;
+      g.font = SANS(108, 700);
+      g.fillStyle = '#ffffff';
+      g.textBaseline = 'middle';
+      g.fillText(word, textX + (1 - reveal) * -30, cy + 2);
+      g.restore();
+    }
+
+    const tag = window_(t, T0 + 1.9, 16.05, 0.6, 0.6);
+    line(
+      [
+        { text: 'Self-custody', font: SERIF(40), color: 'rgba(255,255,255,0.9)' },
+        { text: 'trading panel', font: SANS(32), color: 'rgba(255,255,255,0.72)' },
+      ],
+      cx, cy + 118, tag, (1 - tag) * 8, (1 - tag) * 8,
+    );
+  }
+}
+
+window.ready = (async () => {
+  await document.fonts.load(SANS(46));
+  await document.fonts.load(SANS(108, 700));
+  await document.fonts.load(SERIF(54));
+  await document.fonts.ready;
+  for (const img of [logo, panel]) if (!img.complete) await new Promise((r) => (img.onload = r));
+  // The panel's own background, to patch its holding text with.
+  const probe = document.createElement('canvas');
+  probe.width = panel.width;
+  probe.height = panel.height;
+  const pg = probe.getContext('2d');
+  pg.drawImage(panel, 0, 0);
+  const [r, gr, b] = pg.getImageData(HOLDING.x - 8, HOLDING.y + 6, 1, 1).data;
+  panelBg = `rgb(${r}, ${gr}, ${b})`;
+  return true;
+})();
+
+/** One still, as a JPEG data URL. */
+window.still = (t) => { draw(t); return c.toDataURL('image/jpeg', 0.85); };
+
+/** The whole clip, encoded in the browser (WebCodecs H.264 + mp4-muxer), as base64. */
+window.encode = async () => {
+  const { Muxer, ArrayBufferTarget } = await import('https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/+esm');
+  const target = new ArrayBufferTarget();
+  const muxer = new Muxer({ target, video: { codec: 'avc', width: W, height: H, frameRate: FPS }, fastStart: 'in-memory' });
+  let error = null;
+  const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => (error = e) });
+  enc.configure({ codec: 'avc1.640028', width: W, height: H, bitrate: 10_000_000, framerate: FPS, latencyMode: 'quality' });
+  const frames = Math.round(DURATION * FPS);
+  for (let i = 0; i < frames; i++) {
+    draw(i / FPS);
+    const frame = new VideoFrame(c, { timestamp: Math.round((i * 1e6) / FPS), duration: Math.round(1e6 / FPS) });
+    enc.encode(frame, { keyFrame: i % 60 === 0 });
+    frame.close();
+    if (enc.encodeQueueSize > 8) await new Promise((r) => setTimeout(r, 5));
+    if (error) throw error;
+  }
+  await enc.flush();
+  muxer.finalize();
+  const bytes = new Uint8Array(target.buffer);
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { frames, size: bytes.length, b64: btoa(s) };
+};
+</script>
+</body>
+</html>

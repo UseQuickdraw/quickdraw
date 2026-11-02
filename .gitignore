@@ -1,0 +1,10 @@
+node_modules/
+.output/
+.wxt/
+.env
+.env.*
+!.env.example
+*.zip
+*.log
+promo/teaser/still-*.jpg
+promo/banner/banner-guides.jpg
