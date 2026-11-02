@@ -16,7 +16,7 @@
   <a href="#getting-started">Getting started</a> ·
   <a href="#the-panel">The panel</a> ·
   <a href="docs/how-it-works.md">How it works</a> ·
-  <a href="SECURITY.md">Security</a>
+  <a href="#security">Security</a>
 </p>
 
 ---
@@ -102,6 +102,21 @@ What a trade costs:
 - the landing tip: **Fast** from 0.001 SOL, **Eco** from 0.000005 SOL. Small buys use Eco automatically, since a fixed tip is a big share of a small trade.
 
 What you don't pay: any platform cut. If a developer fee is ever added it will be opt-in, off by default and shown in the panel.
+
+## Security
+
+Quickdraw signs trades without asking, so it's built to assume the worst about the sites it runs on and to limit what a bug could do.
+
+- **Burner wallets only.** Make a fresh wallet in Quickdraw (or import one made just for it), keep only what you're willing to lose in it, and sweep profits to your main wallet. Never import your main wallet.
+- **Your key never leaves your browser.** It's encrypted at rest (AES-256-GCM) with a device key your browser generates and won't let anything read out, and it's only ever decrypted in the extension's background worker. The trading site, and the panel drawn on it, never see it.
+- **Every transaction is checked before it's signed.** A signing guard inspects each one and refuses anything outside a strict allowlist: only known programs, SOL only to the landing tip or your own accounts, fees within your caps. Sending SOL anywhere else is only possible through the sweep, to the address you saved, after you type a confirmation phrase.
+- **No double buys.** A trade that doesn't land is rebroadcast as the same signed transaction, never re-signed. If it expires, nothing is spent.
+- **Nothing in between.** No server, no account, no analytics. Quickdraw only talks to the RPC and sender you set, and routes are built locally (no Jupiter or other trading API).
+- **Checkable builds.** Dependencies are pinned, there's no remote code, and each release is built by GitHub Actions from its tag with a checksum you can reproduce from source.
+
+There's no password, so **anyone who can use your browser profile can trade with the burner** or reveal its key. Use a browser profile only you use, keep its other extensions to a minimum, and keep your computer free of malware.
+
+The full threat model and its limits are in [SECURITY.md](SECURITY.md). Found a vulnerability? Please report it privately through [GitHub's vulnerability reporting](https://github.com/UseQuickdraw/quickdraw/security/advisories/new), not in a public issue.
 
 ## Troubleshooting
 
