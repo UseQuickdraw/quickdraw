@@ -1,0 +1,318 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&family=Instrument+Serif:ital@0;1&display=block" rel="stylesheet">
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="common.js"></script>
+<script>
+// "Don't keep your keys on a website": every frame is a pure function of t (seconds).
+//
+//   0.5–3.3   "Hacks are getting worse." with a glitch
+//   3.6–7.5   the kinds of breach that keep happening, as alerts
+//   7.9–10.5  "If a website holds your keys, / its breach is your loss."
+//   10.9–14.6 one server holding everyone's keys vs one browser holding yours
+//   14.9–17.2 "Quickdraw seals your key in your browser. / It never touches a server."
+//   17.5–     the logo, "Open source ◆ self-custody", the GitHub address
+const { W, H, GREEN, BUY_C, SELL_C, g, clamp, ease, easeInOut, back, window_, lerp, SANS, SERIF, clear, line, aurora, roundRect, logoOutro } = promo;
+const DURATION = 22.2;
+const cx = W / 2, cy = H / 2;
+const RED = '#ff4d6d';
+
+/** Deterministic noise, so stills and the encode match. */
+const noise = (n) => {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+/** A red haze along the bottom, for the threat scenes. */
+function redGlow(t, strength) {
+  if (strength <= 0) return;
+  g.save();
+  g.globalAlpha = strength;
+  g.filter = 'blur(100px)';
+  const drift = Math.sin(t * 0.7) * 50;
+  for (const b of [
+    { x: 420 + drift, y: 1150, rx: 620, ry: 190, color: 'rgba(255, 60, 90, 0.55)' },
+    { x: 1500 - drift, y: 1170, rx: 640, ry: 200, color: 'rgba(160, 20, 50, 0.7)' },
+  ]) {
+    g.fillStyle = b.color;
+    g.beginPath();
+    g.ellipse(b.x, b.y, b.rx, b.ry, 0, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.restore();
+}
+
+/** Centred text with an RGB-split glitch that flares now and then. */
+function glitchText(text, font, y, alpha, t) {
+  if (alpha <= 0) return;
+  const frame = Math.floor(t * 30);
+  const burst = noise(Math.floor(t * 6)) > 0.62 ? 1 : 0.15;
+  const dx = (noise(frame) - 0.5) * 18 * burst;
+  const dy = (noise(frame + 7) - 0.5) * 6 * burst;
+  g.save();
+  g.font = font;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.globalAlpha = alpha * 0.85;
+  g.globalCompositeOperation = 'lighter';
+  g.fillStyle = 'rgba(255, 40, 80, 0.9)';
+  g.fillText(text, cx + dx, y + dy);
+  g.fillStyle = 'rgba(40, 200, 255, 0.8)';
+  g.fillText(text, cx - dx, y - dy);
+  g.globalCompositeOperation = 'source-over';
+  g.globalAlpha = alpha;
+  g.fillStyle = '#ffffff';
+  g.fillText(text, cx, y);
+  // A torn slice now and then.
+  if (burst > 0.5) {
+    const sy = y - 40 + noise(frame + 3) * 80;
+    const sh = 8 + noise(frame + 5) * 14;
+    const shift = (noise(frame + 11) - 0.5) * 60;
+    g.beginPath();
+    g.rect(0, sy, W, sh);
+    g.clip();
+    g.clearRect(0, sy, W, sh);
+    g.fillStyle = '#000';
+    g.fillRect(0, sy, W, sh);
+    g.fillStyle = '#ffffff';
+    g.fillText(text, cx + shift, y);
+  }
+  g.restore();
+}
+
+/** An alert card: a red bar, a warning mark, a title and a line under it. */
+function alertCard(x, y, w, a, title, sub) {
+  if (a <= 0) return;
+  const h = 104;
+  g.save();
+  g.globalAlpha = a;
+  g.shadowColor = 'rgba(255, 40, 80, 0.35)';
+  g.shadowBlur = 40;
+  roundRect(x, y, w, h, 14);
+  g.fillStyle = '#1a1214';
+  g.fill();
+  g.shadowBlur = 0;
+  g.strokeStyle = 'rgba(255, 77, 109, 0.45)';
+  g.lineWidth = 2;
+  g.stroke();
+  g.fillStyle = RED;
+  g.fillRect(x, y + 16, 6, h - 32);
+  // Warning triangle.
+  g.save();
+  g.translate(x + 58, y + h / 2);
+  g.beginPath();
+  g.moveTo(0, -20);
+  g.lineTo(22, 18);
+  g.lineTo(-22, 18);
+  g.closePath();
+  g.fillStyle = 'rgba(255, 77, 109, 0.18)';
+  g.fill();
+  g.strokeStyle = RED;
+  g.lineWidth = 3.5;
+  g.lineJoin = 'round';
+  g.stroke();
+  g.fillStyle = RED;
+  g.fillRect(-2, -8, 4, 14);
+  g.fillRect(-2, 10, 4, 4);
+  g.restore();
+  g.textBaseline = 'alphabetic';
+  g.font = SANS(30, 700);
+  g.fillStyle = '#ffffff';
+  g.fillText(title, x + 100, y + 46);
+  g.font = SANS(23, 500);
+  g.fillStyle = '#b48a92';
+  g.fillText(sub, x + 100, y + 80);
+  g.restore();
+}
+
+/** A key, drawn at (x, y) with scale s. */
+function key(x, y, s, color) {
+  g.save();
+  g.translate(x, y);
+  g.scale(s, s);
+  g.strokeStyle = color;
+  g.lineWidth = 6;
+  g.lineCap = 'round';
+  g.beginPath();
+  g.arc(-12, 0, 12, 0, Math.PI * 2);
+  g.moveTo(0, 0);
+  g.lineTo(28, 0);
+  g.moveTo(20, 0);
+  g.lineTo(20, 10);
+  g.moveTo(28, 0);
+  g.lineTo(28, 8);
+  g.stroke();
+  g.restore();
+}
+
+/** One server rack holding a pile of keys: everyone's, in one place. */
+function server(x, y, a, t) {
+  if (a <= 0) return;
+  g.save();
+  g.globalAlpha = a;
+  const w = 380, unitH = 92;
+  for (let i = 0; i < 3; i++) {
+    const uy = y + i * (unitH + 14);
+    roundRect(x, uy, w, unitH, 14);
+    g.fillStyle = '#1b1416';
+    g.fill();
+    g.strokeStyle = 'rgba(255, 77, 109, 0.5)';
+    g.lineWidth = 2;
+    g.stroke();
+    // Blinking lights.
+    for (let d = 0; d < 3; d++) {
+      const on = noise(Math.floor(t * 5) + i * 3 + d) > 0.4;
+      g.fillStyle = on ? RED : '#4a2a30';
+      g.beginPath();
+      g.arc(x + 32 + d * 22, uy + unitH / 2, 6, 0, Math.PI * 2);
+      g.fill();
+    }
+    // Keys stacked in the unit.
+    for (let k = 0; k < 4; k++) key(x + 150 + k * 56, uy + unitH / 2, 0.85, 'rgba(255, 140, 160, 0.9)');
+  }
+  g.restore();
+}
+
+/** A browser window holding one key behind a lock. */
+function browserWindow(x, y, a) {
+  if (a <= 0) return;
+  g.save();
+  g.globalAlpha = a;
+  const w = 380, h = 304;
+  roundRect(x, y, w, h, 16);
+  g.fillStyle = '#121a14';
+  g.fill();
+  g.strokeStyle = 'rgba(68, 162, 87, 0.7)';
+  g.lineWidth = 2;
+  g.stroke();
+  g.beginPath();
+  g.moveTo(x, y + 46);
+  g.lineTo(x + w, y + 46);
+  g.stroke();
+  ['#ff5f57', '#febc2e', '#28c840'].forEach((c, i) => {
+    g.fillStyle = c;
+    g.beginPath();
+    g.arc(x + 26 + i * 20, y + 23, 6, 0, Math.PI * 2);
+    g.fill();
+  });
+  // The lock.
+  const lx = x + w / 2, ly = y + 170;
+  g.strokeStyle = GREEN;
+  g.lineWidth = 7;
+  g.beginPath();
+  g.arc(lx, ly - 30, 28, Math.PI, 0);
+  g.stroke();
+  roundRect(lx - 48, ly - 30, 96, 80, 12);
+  g.fillStyle = 'rgba(68, 162, 87, 0.18)';
+  g.fill();
+  g.stroke();
+  key(lx + 2, ly + 10, 0.9, '#8fdc9d');
+  g.restore();
+}
+
+function caption(text, x, y, a, color) {
+  if (a <= 0) return;
+  g.save();
+  g.globalAlpha = a;
+  g.font = SANS(30, 600);
+  g.fillStyle = color;
+  g.textAlign = 'center';
+  g.fillText(text, x, y);
+  g.restore();
+}
+
+function draw(t) {
+  clear();
+  redGlow(t, window_(t, 0.3, 13.9, 1.0, 1.2) * 0.9);
+
+  // 1. The trend.
+  {
+    const a = window_(t, 0.5, 3.0);
+    glitchText('Hacks are getting worse.', SANS(84, 700), cy - 10 + (1 - a) * 12, a, t);
+  }
+
+  // 2. How it keeps happening.
+  {
+    const alerts = [
+      { at: 3.7, title: 'Front end hijacked', sub: 'A fake “connect wallet” drains everyone who signs' },
+      { at: 4.25, title: 'Server breached', sub: 'Stored keys copied out, hot wallets emptied' },
+      { at: 4.8, title: 'Database leaked', sub: 'Accounts, sessions and secrets for sale' },
+      { at: 5.35, title: 'Malicious update', sub: 'One bad deploy, every user at risk' },
+    ];
+    const w = 900;
+    alerts.forEach((al, i) => {
+      const a = window_(t, al.at, 7.2, 0.35, 0.4);
+      const shake = t > al.at && t < al.at + 0.25 ? (noise(Math.floor(t * 60)) - 0.5) * 10 : 0;
+      const x = cx - w / 2 + (i % 2 ? 70 : -70) + shake + (1 - ease((t - al.at) / 0.4)) * (i % 2 ? 80 : -80);
+      alertCard(x, 250 + i * 136, w, a, al.title, al.sub);
+    });
+  }
+
+  // 3. The point.
+  {
+    const a1 = window_(t, 7.9, 10.2);
+    line([{ text: 'If a website holds your keys,', font: SANS(60, 600), color: '#f2f2f2' }], cx, cy - 50, a1, (1 - a1) * 12, (1 - a1) * 10);
+    const a2 = window_(t, 8.7, 10.2);
+    line(
+      [
+        { text: 'its breach is', font: SANS(60, 600), color: '#f2f2f2' },
+        { text: 'your loss.', font: SERIF(80), color: RED },
+      ],
+      cx, cy + 50, a2, (1 - a2) * 12, (1 - a2) * 10,
+    );
+  }
+
+  // 4. Where the key lives.
+  {
+    const sa = window_(t, 10.9, 14.2, 0.5, 0.45);
+    const top = 300;
+    const leftX = cx - 540, rightX = cx + 160;
+    server(leftX, top, sa, t);
+    caption('A website’s server', leftX + 190, top + 380, sa, '#ffb3c0');
+    caption('everyone’s keys, one target', leftX + 190, top + 424, sa * 0.8, '#9a7a80');
+    const ba = window_(t, 11.6, 14.2, 0.5, 0.45);
+    browserWindow(rightX, top, ba);
+    caption('Your browser', rightX + 190, top + 380, ba, '#8fdc9d');
+    caption('your key, sealed on your device', rightX + 190, top + 424, ba * 0.8, '#7a9a80');
+    const va = window_(t, 11.3, 14.2, 0.4, 0.45);
+    line([{ text: 'vs', font: SERIF(56), color: 'rgba(255,255,255,0.7)' }], cx + 0, top + 140, va, 0);
+  }
+
+  aurora(t, ease((t - 14.3) / 1.2) * (1 - ease((t - 21.2) / 1.0)));
+
+  // 5. The answer.
+  {
+    const a1 = window_(t, 14.9, 17.0);
+    line(
+      [
+        { text: 'Quickdraw', font: SANS(56, 700), color: '#ffffff' },
+        { text: 'seals your key in your browser.', font: SANS(56, 500), color: '#f2f2f2' },
+      ],
+      cx, cy - 46, a1, (1 - a1) * 12, (1 - a1) * 10,
+    );
+    const a2 = window_(t, 15.6, 17.0);
+    line([{ text: 'It never touches a server.', font: SERIF(76), color: 'rgba(110, 200, 128, 0.98)' }], cx, cy + 50, a2, (1 - a2) * 12, (1 - a2) * 10);
+  }
+
+  // 6. Outro.
+  logoOutro(
+    t, 17.5, 21.1,
+    [
+      { text: 'Open source', font: SANS(34), color: 'rgba(255,255,255,0.78)' },
+      { diamond: true },
+      { text: 'self-custody', font: SERIF(46), color: '#ffffff' },
+    ],
+    [{ text: 'github.com/UseQuickdraw/quickdraw', font: SANS(28), color: 'rgba(255,255,255,0.6)' }],
+  );
+}
+
+promo.start({ draw, duration: DURATION });
+</script>
+</body>
+</html>

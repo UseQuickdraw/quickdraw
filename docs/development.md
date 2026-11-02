@@ -80,4 +80,4 @@ The icons are generated from source too (`npm run icons`). Dependencies are pinn
 
 ## Promo assets
 
-`npm run teaser` renders `docs/quickdraw-teaser.mp4` and `npm run banner` renders `docs/x-banner.png`, both from canvas pages in `promo/` through headless Edge (set `BROWSER` for Chrome).
+`npm run teaser` renders `docs/quickdraw-teaser.mp4`; `npm run teaser -- --page fees`, `--page keys` and `--page hacks` render `docs/quickdraw-fees.mp4`, `docs/quickdraw-keys.mp4` and `docs/quickdraw-hacks.mp4`. `npm run banner` renders `docs/x-banner.png`. All are canvas pages in `promo/`, rendered through headless Edge (set `BROWSER` for Chrome).

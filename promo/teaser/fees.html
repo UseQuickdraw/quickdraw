@@ -1,0 +1,140 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&family=Instrument+Serif:ital@0;1&display=block" rel="stylesheet">
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="common.js"></script>
+<script>
+// "The 1% you don't need to pay": every frame is a pure function of t (seconds).
+//
+//   0.5–3.3   "Every trade on a terminal pays a ◆ 1% platform fee"
+//   3.7–8.6   what that costs: 300 SOL traded in a month → 3 SOL to the platform, struck out → 0 SOL
+//   9.0–12.6  Quickdraw trades landing, with a "saved" counter climbing
+//   12.6–     the logo, "0% platform fee", "Open source · Self-custody"
+const { W, H, GREEN, BUY_C, SELL_C, g, clamp, ease, back, window_, lerp, SANS, SERIF, clear, line, aurora, toast, logoOutro } = promo;
+const DURATION = 17.5;
+const cx = W / 2, cy = H / 2;
+const PINK = '#ef7f9c';
+
+/** A big centred figure. */
+function figure(text, y, size, color, alpha, scale = 1) {
+  if (alpha <= 0) return 0;
+  g.save();
+  g.globalAlpha = alpha;
+  g.translate(cx, y);
+  g.scale(scale, scale);
+  g.font = SANS(size, 700);
+  g.fillStyle = color;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(text, 0, 0);
+  const w = g.measureText(text).width;
+  g.restore();
+  return w * scale;
+}
+
+function draw(t) {
+  clear();
+
+  // 1. The problem.
+  {
+    const a = window_(t, 0.5, 3.0);
+    line(
+      [
+        { text: 'Every trade on a terminal pays a', font: SANS(46), color: '#f2f2f2' },
+        { diamond: true },
+        { text: '1% platform fee', font: SERIF(56), color: PINK },
+      ],
+      cx, cy, a, (1 - a) * 12, (1 - a) * 10,
+    );
+  }
+
+  // 2. What it costs over a month, then what it costs here.
+  {
+    const scene = window_(t, 3.7, 8.4, 0.5, 0.45);
+    line([{ text: 'Trade 10 SOL a day for a month', font: SANS(40), color: '#bdbdbd' }], cx, cy - 210, scene, (1 - scene) * 8);
+    line([{ text: '300 SOL volume', font: SANS(30), color: '#8a8a8a' }], cx, cy - 150, window_(t, 4.0, 8.4, 0.5, 0.45), 0);
+
+    const count = ease((t - 4.4) / 1.4);
+    const fee = (3 * count).toFixed(2);
+    const struck = ease((t - 6.3) / 0.4);
+    const feeAlpha = scene * (1 - 0.55 * struck);
+    const feeW = figure(`−${fee} SOL`, cy - 10, 150, SELL_C, feeAlpha);
+    line([{ text: 'to the platform', font: SANS(30), color: '#8a8a8a' }], cx, cy + 80, feeAlpha * clamp((t - 4.4) / 0.5), 0);
+    // The strike-through, drawn left to right.
+    if (struck > 0 && scene > 0) {
+      g.save();
+      g.globalAlpha = scene;
+      g.strokeStyle = '#f2f2f2';
+      g.lineWidth = 8;
+      g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(cx - feeW / 2 - 20, cy - 4);
+      g.lineTo(cx - feeW / 2 - 20 + (feeW + 40) * struck, cy - 4);
+      g.stroke();
+      g.restore();
+    }
+    // Then the real figure.
+    const zero = back((t - 6.8) / 0.5);
+    const zeroA = clamp((t - 6.8) / 0.25) * scene;
+    figure('0 SOL', cy + 200, 150, BUY_C, zeroA, 0.6 + 0.4 * zero);
+    line(
+      [
+        { text: 'with', font: SANS(30), color: '#8fdc9d' },
+        { text: 'Quickdraw', font: SANS(30, 700), color: '#ffffff' },
+      ],
+      cx, cy + 286, clamp((t - 7.1) / 0.4) * scene, 0,
+    );
+  }
+
+  aurora(t, ease((t - 8.7) / 1.2) * (1 - ease((t - 16.5) / 1.0)));
+
+  // 3. Trades landing, the saved counter climbing above them.
+  {
+    const scene = window_(t, 9.0, 12.4, 0.5, 0.45);
+    const saved = 3.04 * ease((t - 9.2) / 3.0);
+    line(
+      [
+        { text: 'Saved', font: SANS(40), color: '#bdbdbd' },
+        { text: `${saved.toFixed(2)} SOL`, font: SANS(64, 700), color: BUY_C },
+        { text: 'vs a 1% platform fee', font: SANS(40), color: '#bdbdbd' },
+      ],
+      cx, 230, scene, (1 - scene) * 8,
+    );
+    const trades = [
+      { at: 9.4, title: 'Bought 1.21M MEIMEI for 0.5 SOL', sub: 'in block 0.4s  ·  confirmed 0.9s  ·  0% platform fee' },
+      { at: 10.1, title: 'Sold 605K MEIMEI → 0.26 SOL', sub: 'in block 0.5s  ·  confirmed 1.1s  ·  0% platform fee' },
+      { at: 10.8, title: 'Bought 88.4K PEER for 1 SOL', sub: 'in block 0.4s  ·  confirmed 1.0s  ·  0% platform fee' },
+    ];
+    const w = 860;
+    trades.forEach((tr, i) => {
+      const a = clamp((t - tr.at) / 0.35) * scene;
+      const slide = (1 - ease((t - tr.at) / 0.45)) * 60;
+      toast(cx - w / 2 + slide, 360 + i * 124, w, a, { title: tr.title, sub: tr.sub });
+    });
+  }
+
+  // 4. Outro.
+  logoOutro(
+    t, 12.6, 16.4,
+    [
+      { text: '0%', font: SERIF(48), color: '#ffffff' },
+      { text: 'platform fee', font: SANS(34), color: 'rgba(255,255,255,0.78)' },
+    ],
+    [
+      { text: 'Open source', font: SANS(28), color: 'rgba(255,255,255,0.6)' },
+      { diamond: true },
+      { text: 'Self-custody', font: SANS(28), color: 'rgba(255,255,255,0.6)' },
+    ],
+  );
+}
+
+promo.start({ draw, duration: DURATION });
+</script>
+</body>
+</html>

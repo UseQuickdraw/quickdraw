@@ -1,7 +1,9 @@
-// Renders promo/teaser/teaser.html to docs/quickdraw-teaser.mp4 (1920x1080, 30 fps, H.264).
+// Renders a promo video page to docs/quickdraw-<page>.mp4 (1920x1080, 30 fps, H.264).
+// Pages: teaser (the default), fees, keys.
 //
-//   npm run teaser                     -> the MP4
-//   npm run teaser -- --stills 1.5,8   -> JPEG stills at those seconds, next to this file
+//   npm run teaser                                  -> docs/quickdraw-teaser.mp4
+//   npm run teaser -- --page fees                   -> docs/quickdraw-fees.mp4
+//   npm run teaser -- --page keys --stills 1.5,8    -> JPEG stills at those seconds, next to this file
 //
 // It opens the page in headless Edge (or Chrome: set BROWSER to its path), lets
 // the page draw every frame on a canvas and encode it with WebCodecs, and saves
@@ -14,8 +16,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const page = pathToFileURL(join(here, 'teaser.html')).href;
-const out = resolve(here, '../../docs/quickdraw-teaser.mp4');
+const pageArg = process.argv.indexOf('--page');
+const name = pageArg > 0 ? process.argv[pageArg + 1] : 'teaser';
+if (!/^[a-z]+$/.test(name)) throw new Error(`Unknown page: ${name}`);
+const page = pathToFileURL(join(here, `${name}.html`)).href;
+const out = resolve(here, `../../docs/quickdraw-${name}.mp4`);
 const port = 9339;
 const browser = process.env.BROWSER ?? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const stillsArg = process.argv.indexOf('--stills');
@@ -30,7 +35,7 @@ async function target() {
   for (let i = 0; i < 60; i++) {
     try {
       const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-      const t = list.find((t) => t.type === 'page' && t.url.includes('teaser.html'));
+      const t = list.find((t) => t.type === 'page' && t.url.includes(`${name}.html`));
       if (t) return t;
     } catch {
       // not listening yet
@@ -65,7 +70,7 @@ try {
   if (stills) {
     for (const t of stills) {
       const url = await evaluate(`window.still(${t})`);
-      const file = join(here, `still-${String(t).replace('.', '_')}.jpg`);
+      const file = join(here, `still-${name === 'teaser' ? '' : `${name}-`}${String(t).replace('.', '_')}.jpg`);
       writeFileSync(file, Buffer.from(url.split(',')[1], 'base64'));
       console.log(file);
     }

@@ -1,0 +1,251 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&family=Instrument+Serif:ital@0;1&display=block" rel="stylesheet">
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="common.js"></script>
+<script>
+// "Not your keys, not your trades": every frame is a pure function of t (seconds).
+//
+//   0.5–3.4   "Not your keys," / "not your trades."
+//   3.8–9.4   three cards: your keys, your RPC, every trade checked
+//   9.8–13.8  the real panel (panel.png): a cursor buys 0.5 SOL and the pop-up lands beside it
+//   13.9–     the logo, "Open source ◆ self-custody", the GitHub address
+const { W, H, GREEN, BUY_C, g, img, clamp, ease, easeInOut, back, window_, lerp, SANS, SERIF, clear, line, aurora, roundRect, cursor, clickRing, toast, logoOutro, sampleColor } = promo;
+const DURATION = 18.5;
+const cx = W / 2, cy = H / 2;
+
+const panel = img('panel.png');
+/** The 2x capture's size and its 0.5 button, in CSS pixels (panel.json); the sell header's holding text in image pixels. */
+const PANEL = { w: 332, h: 371.75, buy: { x: 242.75, y: 86.5, w: 75.25, h: 32 } };
+const HOLDING = { x: 372, y: 396, w: 276, h: 44, right: 640, base: 428 };
+let panelBg = '#1c1c1c';
+
+// ---------------------------------------------------------------- icons (in a 64px box)
+
+function iconKey() {
+  g.lineWidth = 6;
+  g.lineCap = 'round';
+  g.beginPath();
+  g.arc(-12, 0, 13, 0, Math.PI * 2);
+  g.moveTo(1, 0);
+  g.lineTo(28, 0);
+  g.moveTo(20, 0);
+  g.lineTo(20, 11);
+  g.moveTo(28, 0);
+  g.lineTo(28, 9);
+  g.stroke();
+}
+function iconLink() {
+  // Two nodes joined: you and the chain, nothing in between.
+  g.lineWidth = 6;
+  g.beginPath();
+  g.arc(-18, 0, 10, 0, Math.PI * 2);
+  g.moveTo(8, 0);
+  g.arc(18, 0, 10, Math.PI, Math.PI * 3);
+  g.stroke();
+  g.beginPath();
+  g.moveTo(-8, 0);
+  g.lineTo(8, 0);
+  g.stroke();
+}
+function iconShield() {
+  g.lineWidth = 6;
+  g.lineJoin = 'round';
+  g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(0, -26);
+  g.lineTo(22, -17);
+  g.quadraticCurveTo(22, 14, 0, 27);
+  g.quadraticCurveTo(-22, 14, -22, -17);
+  g.closePath();
+  g.stroke();
+  g.beginPath();
+  g.moveTo(-9, 1);
+  g.lineTo(-2, 8);
+  g.lineTo(10, -6);
+  g.stroke();
+}
+
+function card(x, y, a, icon, title, lines) {
+  if (a <= 0) return;
+  const w = 500, h = 320;
+  g.save();
+  g.globalAlpha = a;
+  g.translate(0, (1 - a) * 30);
+  g.shadowColor = 'rgba(0,0,0,0.6)';
+  g.shadowBlur = 40;
+  roundRect(x, y, w, h, 22);
+  g.fillStyle = '#161616';
+  g.fill();
+  g.shadowBlur = 0;
+  g.strokeStyle = '#2c2c2c';
+  g.lineWidth = 2;
+  g.stroke();
+  // The icon on a green disc.
+  g.save();
+  g.translate(x + 74, y + 82);
+  g.fillStyle = 'rgba(68, 162, 87, 0.16)';
+  g.beginPath();
+  g.arc(0, 0, 42, 0, Math.PI * 2);
+  g.fill();
+  g.strokeStyle = GREEN;
+  icon();
+  g.restore();
+  g.textBaseline = 'alphabetic';
+  g.font = SANS(42, 700);
+  g.fillStyle = '#ffffff';
+  g.fillText(title, x + 36, y + 186);
+  g.font = SANS(25, 500);
+  g.fillStyle = '#9a9a9a';
+  lines.forEach((l, i) => g.fillText(l, x + 36, y + 230 + i * 36));
+  g.restore();
+}
+
+// ---------------------------------------------------------------- the panel
+
+const PANEL_H = 640;
+const K = PANEL_H / (PANEL.h * 2);
+const PANEL_W = PANEL.w * 2 * K;
+const PX = 330;
+const PY = (H - PANEL_H) / 2 - 10;
+const BUY = { x: PX + (PANEL.buy.x + PANEL.buy.w / 2) * 2 * K, y: PY + (PANEL.buy.y + PANEL.buy.h / 2) * 2 * K };
+const T_CLICK = 11.0;
+
+function cursorAt(t) {
+  const start = { x: 1250, y: 980 };
+  const away = { x: 1150, y: 1000 };
+  const at = { x: BUY.x + 6, y: BUY.y + 8 };
+  if (t < 10.1) return null;
+  if (t < 10.9) { const k = easeInOut((t - 10.1) / 0.8); return { x: lerp(start.x, at.x, k), y: lerp(start.y, at.y, k) }; }
+  if (t < 12.0) return at;
+  if (t < 12.8) { const k = easeInOut((t - 12.0) / 0.8); return { x: lerp(at.x, away.x, k), y: lerp(at.y, away.y, k) }; }
+  return null;
+}
+
+function drawPanel(t) {
+  const a = window_(t, 9.8, 13.5, 0.7, 0.5);
+  if (a <= 0 || !panel.complete) return;
+  g.save();
+  g.globalAlpha = a;
+  g.translate(0, (1 - a) * 40);
+  const R = 8 * 2 * K;
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,0.75)';
+  g.shadowBlur = 60;
+  g.shadowOffsetY = 24;
+  roundRect(PX + 1, PY + 1, PANEL_W - 2, PANEL_H - 2, R);
+  g.fillStyle = panelBg;
+  g.fill();
+  g.restore();
+  g.save();
+  roundRect(PX + 1, PY + 1, PANEL_W - 2, PANEL_H - 2, R);
+  g.clip();
+  g.drawImage(panel, PX, PY, PANEL_W, PANEL_H);
+  g.restore();
+  // After the buy lands, the holding line shows it.
+  if (t >= T_CLICK + 0.55) {
+    const at = (x, y) => [PX + x * K, PY + y * K];
+    g.fillStyle = panelBg;
+    g.fillRect(...at(HOLDING.x, HOLDING.y), HOLDING.w * K, HOLDING.h * K);
+    g.font = SANS(24 * K, 600);
+    g.fillStyle = '#ffffff';
+    g.textAlign = 'right';
+    g.textBaseline = 'alphabetic';
+    g.fillText('1.21M MEIMEI  •  $96  •  0.5 SOL', ...at(HOLDING.right, HOLDING.base));
+    g.textAlign = 'left';
+  }
+  // The pressed button lights up.
+  const dt = t - T_CLICK;
+  if (dt >= 0 && dt < 0.6) {
+    const b = PANEL.buy;
+    g.globalAlpha = a * (1 - dt / 0.6) * 0.5;
+    g.fillStyle = BUY_C;
+    g.fillRect(PX + b.x * 2 * K, PY + b.y * 2 * K, b.w * 2 * K, b.h * 2 * K);
+  }
+  g.restore();
+  clickRing(t, T_CLICK, BUY.x, BUY.y, BUY_C);
+
+  // Beside it: where the trade went, then the pop-up.
+  const right = PX + PANEL_W + 90;
+  const w = 820;
+  const steps = [
+    { at: 11.15, text: 'Signed in your browser' },
+    { at: 11.35, text: 'Sent straight to your RPC' },
+  ];
+  steps.forEach((s, i) => {
+    const sa = clamp((t - s.at) / 0.3) * a;
+    if (sa <= 0) return;
+    g.save();
+    g.globalAlpha = sa;
+    g.fillStyle = GREEN;
+    g.beginPath();
+    g.arc(right + 10, PY + 182 + i * 54, 7, 0, Math.PI * 2);
+    g.fill();
+    g.font = SANS(32, 500);
+    g.fillStyle = '#d8d8d8';
+    g.textBaseline = 'middle';
+    g.fillText(s.text, right + 34, PY + 182 + i * 54);
+    g.restore();
+  });
+  const ta = clamp((t - 11.6) / 0.35) * a;
+  toast(right + (1 - ease((t - 11.6) / 0.45)) * 50, PY + 300, w, ta, {
+    title: 'Bought 1.21M MEIMEI for 0.5 SOL',
+    sub: 'in block 0.4s  ·  confirmed 0.9s  ·  0% platform fee',
+  });
+
+  const p = cursorAt(t);
+  if (p) cursor(p.x, p.y, a, Math.max(0, 1 - Math.abs(t - T_CLICK) / 0.12));
+}
+
+// ---------------------------------------------------------------- frames
+
+function draw(t) {
+  clear();
+
+  // 1. The line everyone knows, applied to trading.
+  {
+    const a1 = window_(t, 0.5, 3.1);
+    line([{ text: 'Not your keys,', font: SANS(64, 600), color: '#f2f2f2' }], cx, cy - 46, a1, (1 - a1) * 12, (1 - a1) * 10);
+    const a2 = window_(t, 1.4, 3.1);
+    line([{ text: 'not your trades.', font: SERIF(84), color: 'rgba(110, 200, 128, 0.98)' }], cx, cy + 50, a2, (1 - a2) * 12, (1 - a2) * 10);
+  }
+
+  // 2. What Quickdraw keeps yours.
+  {
+    const cards = [
+      { at: 3.9, icon: iconKey, title: 'Your keys', lines: ['Sealed in your browser.', 'Never sent anywhere.'] },
+      { at: 4.6, icon: iconLink, title: 'Your RPC', lines: ['Straight to the chain.', 'No middleman, no API.'] },
+      { at: 5.3, icon: iconShield, title: 'Every trade checked', lines: ['A signing guard reads each', 'one before it’s signed.'] },
+    ];
+    const gap = 40, w = 500;
+    const x0 = cx - (3 * w + 2 * gap) / 2;
+    cards.forEach((c, i) => card(x0 + i * (w + gap), cy - 160, window_(t, c.at, 9.1, 0.5, 0.45), c.icon, c.title, c.lines));
+  }
+
+  aurora(t, ease((t - 9.5) / 1.2) * (1 - ease((t - 17.5) / 1.0)));
+
+  // 3. The panel making a trade.
+  drawPanel(t);
+
+  // 4. Outro.
+  logoOutro(
+    t, 13.9, 17.4,
+    [
+      { text: 'Open source', font: SANS(34), color: 'rgba(255,255,255,0.78)' },
+      { diamond: true },
+      { text: 'self-custody', font: SERIF(46), color: '#ffffff' },
+    ],
+    [{ text: 'github.com/UseQuickdraw/quickdraw', font: SANS(28), color: 'rgba(255,255,255,0.6)' }],
+  );
+}
+
+promo.start({ draw, duration: DURATION, images: [panel], onReady: () => (panelBg = sampleColor(panel, HOLDING.x - 8, HOLDING.y + 6)) });
+</script>
+</body>
+</html>
