@@ -24,7 +24,7 @@ export const ContentRequest = z.discriminatedUnion('type', [
     /** performance.now()-style click timestamp for the latency harness. */
     clickedAt: z.number().finite(),
   }),
-  z.object({ type: z.literal('OPEN_OPTIONS'), section: z.enum(['wallet', 'settings']).optional() }),
+  z.object({ type: z.literal('OPEN_OPTIONS'), section: z.enum(['wallet', 'endpoints', 'fees', 'settings', 'display', 'ledger']).optional() }),
   /**
    * The panel's P1/P2/P3 tabs: activate the profile in that slot, creating the
    * next one from its starter template if it doesn't exist yet.
