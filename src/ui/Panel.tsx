@@ -289,6 +289,28 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
 
   const address = detected;
   const walletReady = !!state && state.hasWallet && !state.needsPassword;
+
+  // The selected wallets' SOL, read directly while there's no market to carry it
+  // (a coin still loading or one Quickdraw can't trade): a balance of 0 there looks like lost funds.
+  const [walletSol, setWalletSol] = useState<number | null>(null);
+  const activeKey = state?.active.join(',') ?? '';
+  useEffect(() => {
+    if (!walletReady || market) return;
+    let current = true;
+    const read = () =>
+      void send<WalletRow[]>({ type: 'LIST_WALLETS' }).then((r) => {
+        if (!current || !r.ok) return;
+        const known = r.data.filter((w) => w.selected && w.sol !== null);
+        setWalletSol(known.length ? known.reduce((a, w) => a + w.sol!, 0) : null);
+      });
+    read();
+    const timer = setInterval(read, 15_000);
+    return () => {
+      current = false;
+      clearInterval(timer);
+    };
+  }, [walletReady, !!market, activeKey]);
+  const solBalance = market?.solBalance ?? walletSol;
   // Resolve address -> mint -> venue in the worker, which then keeps it fresh.
   useEffect(() => {
     setMarket(null);
@@ -848,7 +870,7 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
             </span>
             <span class="it-right">
               <span title={`Wallet SOL balance · ${venueLabel}`}>
-                <Icon.sol /> {market?.solBalance != null ? fmtSol(market.solBalance) : '0'}
+                <Icon.sol /> {solBalance != null ? fmtSol(solBalance) : '0'}
               </span>
               <button class="it-mini" title={pos.compact ? 'Full size' : 'Compact'} onClick={() => persist({ ...pos, compact: !pos.compact })}>
                 <Icon.expand />
