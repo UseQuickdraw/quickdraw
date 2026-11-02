@@ -11,7 +11,7 @@ import { loadFixture, replay, type Fixture } from './helpers/fixtures';
 import { resolveAddress } from '../src/solana/resolver';
 import { openMarket, venueAllowlist } from '../src/venues/registry';
 import type { Market } from '../src/venues/types';
-import { ClmmLeg, sqrtPriceAtTick, tickAtSqrtPrice } from '../src/venues/raydiumClmm';
+import { ClmmLeg, decodeDynamicFee, sqrtPriceAtTick, tickAtSqrtPrice, tickSpacingIndex, totalFeeRate, updateFeeReference, type DynamicFee } from '../src/venues/raydiumClmm';
 import { ChainLeg, USDC_MINT } from '../src/venues/routes';
 import { WhirlpoolLeg } from '../src/venues/whirlpool';
 import { PumpSwapSolLeg } from '../src/venues/pumpPool';
@@ -48,6 +48,54 @@ function tokenAccount(amount: bigint, mint: PublicKey, owner: PublicKey, program
   data[108] = 1;
   return { data, owner: programId, lamports: 2_039_280, executable: false, rentEpoch: 0 };
 }
+
+describe('CLMM dynamic fees (states/pool_fee.rs)', () => {
+  const fee = (over: Partial<DynamicFee> = {}): DynamicFee => ({
+    filterPeriod: 10, decayPeriod: 60, reductionFactor: 5_000, control: 1_000, maxVolatility: 350_000,
+    indexReference: 0, volatilityReference: 0, volatility: 0, lastUpdate: 1_000, ...over,
+  });
+
+  it("groups ticks by spacing, rounding down below zero (the program's own cases)", () => {
+    for (const [tick, spacing, index] of [[0, 10, 0], [10, 10, 1], [5, 10, 0], [19, 10, 1], [-1, 10, -1], [-5, 10, -1], [-10, 10, -1], [-11, 10, -2], [-21, 10, -3], [121, 60, 2], [-30, 60, -1], [-121, 60, -3], [-5, 1, -5]] as const) {
+      expect(tickSpacingIndex(tick, spacing), `${tick}/${spacing}`).toBe(index);
+    }
+  });
+
+  it('holds the reference while trading is fast, decays it after, and resets it once quiet', () => {
+    const held = fee({ volatility: 40_000, volatilityReference: 20_000 });
+    updateFeeReference(held, 7, 1_005);
+    expect(held).toMatchObject({ volatilityReference: 20_000, indexReference: 0, lastUpdate: 1_000 });
+    const decayed = fee({ volatility: 40_000 });
+    updateFeeReference(decayed, 7, 1_030);
+    expect(decayed).toMatchObject({ volatilityReference: 20_000, indexReference: 7, lastUpdate: 1_030 });
+    const reset = fee({ volatility: 40_000, volatilityReference: 20_000 });
+    updateFeeReference(reset, 7, 1_100);
+    expect(reset).toMatchObject({ volatilityReference: 0, indexReference: 7, lastUpdate: 1_100 });
+  });
+
+  it('adds ceil(control * (volatility * spacing)^2 / 1e13) to the base rate, capped at 10%', () => {
+    expect(totalFeeRate(2_500n, fee(), 60)).toBe(2_500n);
+    // 10,000 * 60 = 600,000; 1,000 * 600,000^2 / 1e13 = 36.
+    expect(totalFeeRate(2_500n, fee({ volatility: 10_000 }), 60)).toBe(2_536n);
+    expect(totalFeeRate(2_500n, fee({ volatility: 10_001 }), 1)).toBe(2_501n);
+    expect(totalFeeRate(90_000n, fee({ volatility: 350_000 }), 60)).toBe(100_000n);
+  });
+
+  it('reads the fee state from its 80 packed bytes, and none when they are all zero', () => {
+    expect(decodeDynamicFee(Buffer.alloc(80))).toBeNull();
+    const b = Buffer.alloc(80);
+    b.writeUInt16LE(10, 0);
+    b.writeUInt16LE(60, 2);
+    b.writeUInt16LE(5_000, 4);
+    b.writeUInt32LE(1_000, 6);
+    b.writeUInt32LE(350_000, 10);
+    b.writeInt32LE(-42, 14);
+    b.writeUInt32LE(7, 18);
+    b.writeUInt32LE(9, 22);
+    b.writeBigUInt64LE(1_700_000_000n, 26);
+    expect(decodeDynamicFee(b)).toEqual({ filterPeriod: 10, decayPeriod: 60, reductionFactor: 5_000, control: 1_000, maxVolatility: 350_000, indexReference: -42, volatilityReference: 7, volatility: 9, lastUpdate: 1_700_000_000 });
+  });
+});
 
 describe('CLMM tick maths', () => {
   it('matches the program at known points and round-trips', () => {

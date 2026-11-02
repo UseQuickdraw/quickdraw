@@ -53,6 +53,7 @@ pump.fun has no reliable devnet, so markets are tested against mainnet. Unit tes
 | `tests/live-cpmm.test.ts` | Raydium CPMM, SOL-, STONK- and xStock-paired |
 | `tests/live-pumproute.test.ts` | PumpSwap coins paired with a pump coin, an xStock or a USDC-traded token |
 | `tests/live-clmmpool.test.ts` | A coin on its own CLMM pool priced in an xStock (RETARD/LLY) |
+| `tests/live-dynamicfee.test.ts` | A coin routed through a dynamic-fee CLMM pool (HAMMER, priced in DJT) |
 
 ```bash
 LIVE=1 npx vitest run tests/live-sim.test.ts

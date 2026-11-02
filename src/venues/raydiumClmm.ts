@@ -202,6 +202,8 @@ interface PoolState {
   bitmap: bigint;
   openTime: bigint;
   dynamicFee: boolean;
+  /** The dynamic fee state, when the pool has one. */
+  dyn: DynamicFee | null;
 }
 
 const u128 = (d: Buffer, o: number) => d.readBigUInt64LE(o) + (d.readBigUInt64LE(o + 8) << 64n);
@@ -229,11 +231,77 @@ export function decodeClmmPool(info: AccountInfo<Buffer>): PoolState | null {
     bitmap,
     openTime: d.readBigUInt64LE(1080),
     dynamicFee: d.subarray(1096, 1176).some((b) => b !== 0),
+    dyn: decodeDynamicFee(d.subarray(1096, 1176)),
   };
 }
 
 interface Fees {
   trade: bigint;
+}
+
+/** DynamicFeeInfo (packed, 80 bytes at 1096 in the pool); null when the pool has none (all zero). */
+export interface DynamicFee {
+  filterPeriod: number;
+  decayPeriod: number;
+  reductionFactor: number;
+  control: number;
+  maxVolatility: number;
+  indexReference: number;
+  volatilityReference: number;
+  volatility: number;
+  lastUpdate: number;
+}
+
+export function decodeDynamicFee(b: Buffer): DynamicFee | null {
+  if (!b.some((x) => x !== 0)) return null;
+  return {
+    filterPeriod: b.readUInt16LE(0),
+    decayPeriod: b.readUInt16LE(2),
+    reductionFactor: b.readUInt16LE(4),
+    control: b.readUInt32LE(6),
+    maxVolatility: b.readUInt32LE(10),
+    indexReference: b.readInt32LE(14),
+    volatilityReference: b.readUInt32LE(18),
+    volatility: b.readUInt32LE(22),
+    lastUpdate: Number(b.readBigUInt64LE(26)),
+  };
+}
+
+/** The highest total fee rate (10%), and the scales of states/pool_fee.rs. */
+const MAX_FEE_RATE = 100_000n;
+const VOLATILITY_SCALE = 10_000;
+const REDUCTION_DENOMINATOR = 10_000;
+const CONTROL_DENOMINATOR = 100_000n;
+
+/** tick_spacing_index_from_tick: which tick-spacing group a tick is in (rounding down). */
+export function tickSpacingIndex(tick: number, spacing: number): number {
+  return tick % spacing === 0 || tick >= 0 ? Math.trunc(tick / spacing) : Math.trunc(tick / spacing) - 1;
+}
+
+/** update_reference: hold within the filter period, decay within the decay period, reset after it. */
+export function updateFeeReference(f: DynamicFee, groupIndex: number, now: number): void {
+  const elapsed = Math.max(0, now - f.lastUpdate);
+  if (elapsed < f.filterPeriod) return;
+  f.indexReference = groupIndex;
+  f.volatilityReference = elapsed < f.decayPeriod ? Math.floor((f.volatility * f.reductionFactor) / REDUCTION_DENOMINATOR) : 0;
+  f.lastUpdate = now;
+}
+
+/** update_volatility_accumulator: the reference plus the groups crossed since it, capped. */
+function updateVolatility(f: DynamicFee, groupIndex: number): void {
+  const v = f.volatilityReference + Math.abs(f.indexReference - groupIndex) * VOLATILITY_SCALE;
+  f.volatility = Math.min(v, f.maxVolatility);
+}
+
+/** get_total_fee_rate: the base rate plus ceil(control * (volatility * spacing)^2 / scale), capped at 10%. */
+export function totalFeeRate(base: bigint, f: DynamicFee, spacing: number): bigint {
+  const crossed = BigInt(f.volatility) * BigInt(spacing);
+  const den = CONTROL_DENOMINATOR * BigInt(VOLATILITY_SCALE) * BigInt(VOLATILITY_SCALE);
+  const num = BigInt(f.control) * crossed * crossed;
+  let dynamic = (num + den - 1n) / den;
+  if (dynamic > MAX_FEE_RATE) dynamic = MAX_FEE_RATE;
+  const total = base + dynamic;
+  return total > MAX_FEE_RATE ? MAX_FEE_RATE : total;
 }
 
 function decodeConfig(info: AccountInfo<Buffer>): Fees {
@@ -281,6 +349,21 @@ export function tickArrayPda(pool: PublicKey, start: number): PublicKey {
   const b = Buffer.alloc(4);
   b.writeInt32BE(start);
   return PublicKey.findProgramAddressSync([Buffer.from('tick_array'), pool.toBuffer(), b], CLMM_PROGRAM_ID)[0];
+}
+
+/** Every CLMM pool pairing these two mints, whatever its config or seed (empty if the RPC refuses the scan). */
+async function clmmPoolsByMints(conn: Connection, a: PublicKey, b: PublicKey): Promise<PublicKey[]> {
+  const [m0, m1] = Buffer.compare(a.toBuffer(), b.toBuffer()) < 0 ? [a, b] : [b, a];
+  try {
+    const found = await conn.getProgramAccounts(CLMM_PROGRAM_ID, {
+      commitment: 'confirmed',
+      dataSlice: { offset: 0, length: 0 },
+      filters: [{ dataSize: 1544 }, { memcmp: { offset: 73, bytes: m0.toBase58() } }, { memcmp: { offset: 105, bytes: m1.toBase58() } }],
+    });
+    return found.map((f) => f.pubkey);
+  } catch {
+    return [];
+  }
 }
 
 export function clmmPoolPda(config: PublicKey, mintA: PublicKey, mintB: PublicKey): PublicKey {
@@ -495,7 +578,6 @@ export class ClmmLeg implements SolLeg {
   }
 
   private assertSupported(): void {
-    if (this.pool.dynamicFee) throw new ClmmError('This Raydium CLMM pool uses dynamic fees (not supported yet)');
     if (this.pool.status & (1 << 4)) throw new VenueError('Swaps are paused on this Raydium CLMM pool', 'UNSUPPORTED');
   }
 
@@ -573,15 +655,27 @@ export class ClmmLeg implements SolLeg {
     return a;
   }
 
-  /** swap_internal for an exact input with no price limit: [amount out, tick arrays the swap reads, in order]. */
-  swap(amountIn: bigint, zeroForOne: boolean): { out: bigint; arrays: number[] } {
+  /**
+   * swap_internal for an exact input with no price limit: [amount out, tick arrays the swap reads, in order].
+   * A dynamic-fee pool steps one tick-spacing group at a time, its fee rising with the volatility
+   * accumulator as the price crosses groups (states/pool_fee.rs, SwapState in instructions/swap.rs).
+   * `now` is the chain's clock in seconds: the fee's reference decays with time since its last update.
+   */
+  swap(amountIn: bigint, zeroForOne: boolean, now = Math.floor(Date.now() / 1000)): { out: bigint; arrays: number[] } {
     this.assertSupported();
     const p = this.pool;
     if (amountIn === 0n) throw new VenueError('Amount too small for the CLMM pool', 'EMPTY');
     const limit = zeroForOne ? MIN_SQRT_PRICE_X64 + 1n : MAX_SQRT_PRICE_X64 - 1n;
     const feeOnInput = p.feeOn === 1 ? zeroForOne : p.feeOn === 2 ? !zeroForOne : true;
-    const fee = this.fees.trade;
+    const baseFee = this.fees.trade;
     const spacing = p.tickSpacing;
+    // A working copy: the swap moves the accumulator, the pool's own state stays as the chain has it.
+    const dyn = p.dyn ? { ...p.dyn } : null;
+    let groupIndex = 0;
+    if (dyn) {
+      groupIndex = tickSpacingIndex(p.tickCurrent, spacing);
+      updateFeeReference(dyn, groupIndex, now);
+    }
 
     const search = this.search();
     let [containsCurrent, start] = firstArray(p, search, zeroForOne);
@@ -621,26 +715,56 @@ export class ClmmLeg implements SolLeg {
       const sqrtNext = sqrtPriceAtTick(tickNext);
       const target = (zeroForOne && sqrtNext < limit) || (!zeroForOne && sqrtNext > limit) ? limit : sqrtNext;
       let liquidityNext = liquidity;
-      let stepNext = target;
-      if (sqrtPrice !== target) {
-        const r = computeSwap(sqrtPrice, target, liquidity, remaining, fee, zeroForOne, feeOnInput);
-        remaining -= feeOnInput ? r.amountIn + r.fee : r.amountIn;
-        out += r.amountOut;
-        stepNext = r.sqrtPriceNext;
-      }
-      if (sqrtNext === stepNext) {
-        // Reaching a tick with resting limit orders would fill them at this price: not modelled.
-        if (next.limitOrders) throw new ClmmError('This trade would reach Raydium CLMM limit orders (not supported yet). Try a smaller amount.');
-        if (next.liquidityGross > 0n) {
-          const net = zeroForOne ? -next.liquidityNet : next.liquidityNet;
-          liquidityNext = liquidity + net;
-          if (net < 0n ? liquidityNext >= liquidity : liquidityNext < liquidity) throw new ClmmError('CLMM liquidity error');
+      // Without a dynamic fee this runs once, straight to the target.
+      for (;;) {
+        if (dyn) updateVolatility(dyn, groupIndex);
+        const feeRate = dyn ? totalFeeRate(baseFee, dyn, spacing) : baseFee;
+        // get_spacing_bounded_price: a dynamic-fee step stops at the edge of the current group.
+        let skipped = true;
+        let bounded = target;
+        let boundedTick: number | null = null;
+        if (dyn && liquidity !== 0n && dyn.volatility !== dyn.maxVolatility) {
+          skipped = false;
+          const edge = Math.min(MAX_TICK, Math.max(MIN_TICK, (zeroForOne ? groupIndex : groupIndex + 1) * spacing));
+          const edgePrice = sqrtPriceAtTick(edge);
+          if (zeroForOne ? target <= edgePrice : target >= edgePrice) {
+            bounded = edgePrice;
+            boundedTick = edge;
+          }
         }
-        tick = zeroForOne ? tickNext - 1 : tickNext;
-      } else if (sqrtPrice !== stepNext) {
-        tick = tickAtSqrtPrice(stepNext);
+        let stepNext = bounded;
+        if (sqrtPrice !== bounded) {
+          const r = computeSwap(sqrtPrice, bounded, liquidity, remaining, feeRate, zeroForOne, feeOnInput);
+          remaining -= feeOnInput ? r.amountIn + r.fee : r.amountIn;
+          out += r.amountOut;
+          stepNext = r.sqrtPriceNext;
+        }
+        if (sqrtNext === stepNext) {
+          // Reaching a tick with resting limit orders would fill them at this price: not modelled.
+          if (next.limitOrders) throw new ClmmError('This trade would reach Raydium CLMM limit orders (not supported yet). Try a smaller amount.');
+          if (next.liquidityGross > 0n) {
+            const net = zeroForOne ? -next.liquidityNet : next.liquidityNet;
+            liquidityNext = liquidity + net;
+            if (net < 0n ? liquidityNext >= liquidity : liquidityNext < liquidity) throw new ClmmError('CLMM liquidity error');
+          }
+          tick = zeroForOne ? tickNext - 1 : tickNext;
+        } else if (sqrtPrice !== stepNext) {
+          tick = boundedTick !== null && stepNext === bounded ? boundedTick : tickAtSqrtPrice(stepNext);
+        }
+        sqrtPrice = stepNext;
+        // update_dynamic_fee_index
+        if (dyn) {
+          if (skipped) {
+            const at = sqrtPrice === sqrtNext ? tickNext : tick;
+            let index = tickSpacingIndex(at, spacing);
+            if (!zeroForOne && at % spacing === 0) index -= 1;
+            groupIndex = index;
+            if (dyn.volatility !== dyn.maxVolatility) updateVolatility(dyn, groupIndex);
+          }
+          groupIndex += zeroForOne ? -1 : 1;
+        }
+        if (remaining === 0n || sqrtPrice === target) break;
       }
-      sqrtPrice = stepNext;
       liquidity = liquidityNext;
     }
     // No price limit: the program requires the whole input to be swapped.
@@ -736,13 +860,16 @@ export class ClmmLeg implements SolLeg {
   static async open(conn: Connection, token: PublicKey, anchor: PublicKey = NATIVE_MINT): Promise<{ leg: ClmmLeg; reserve: bigint } | null> {
     const configs = Array.from({ length: AMM_CONFIG_COUNT }, (_, i) => ammConfigPda(i));
     const pools = configs.map((c) => clmmPoolPda(c, anchor, token));
+    // Customizable pools (often the dynamic-fee ones) add a seed index to their address, so
+    // they're found by their two mints instead. Best effort: some RPCs refuse program scans.
+    for (const key of await clmmPoolsByMints(conn, anchor, token)) if (!pools.some((p) => p.equals(key))) pools.push(key);
     // SOL and USDC are classic SPL tokens; any other anchor (an xStock) is read for its program and extensions.
     const plainAnchor = anchor.equals(NATIVE_MINT) || anchor.equals(USDC);
     const [mintInfo, ...poolInfos] = await conn.getMultipleAccountsInfo([token, ...pools], 'confirmed');
     const anchorInfo = plainAnchor ? null : await conn.getAccountInfo(anchor, 'confirmed');
     const found = poolInfos.flatMap((info, i) => {
       const p = info ? decodeClmmPool(info) : null;
-      return p && info && !p.dynamicFee && p.liquidity > 0n ? [{ key: pools[i]!, info, p }] : [];
+      return p && info && p.liquidity > 0n ? [{ key: pools[i]!, info, p }] : [];
     });
     if (!found.length || !mintInfo) return null;
     assertPlainToken(token, mintInfo, { allowFee: true });
@@ -751,18 +878,28 @@ export class ClmmLeg implements SolLeg {
     // The deepest pool by the anchor it holds that can actually fill a trade:
     // a pool can hold anchor yet have no liquidity in range (DJT's SOL pool held
     // 0.0001 SOL and could fill nothing), and choosing it fails every click.
-    const vaults = await conn.getMultipleAccountsInfo(found.map((f) => (f.p.mint0.equals(anchor) ? f.p.vault0 : f.p.vault1)), 'confirmed');
+    const vaultKeys = found.map((f) => (f.p.mint0.equals(anchor) ? f.p.vault0 : f.p.vault1));
+    // A vault that can't be read only rules out its own pool.
+    const vaults = await conn
+      .getMultipleAccountsInfo(vaultKeys, 'confirmed')
+      .catch(() => Promise.all(vaultKeys.map((k) => conn.getAccountInfo(k, 'confirmed').catch(() => null))));
     const ranked = found.map((f, i) => ({ ...f, reserve: ClmmLeg.anchorReserve(vaults[i] ?? null) })).sort((a, b) => (b.reserve > a.reserve ? 1 : b.reserve < a.reserve ? -1 : 0));
     const fee = await transferFeeOf(conn, { mint: token, tokenProgram: mintInfo.owner, decimals: 0, supply: new BN(0) }, mintInfo);
+    // Each candidate loads on its own: one that fails to load (a missing account, a refused read) is skipped,
+    // and with none usable there's simply no route this way.
     for (const pick of ranked) {
-      const configInfo = await conn.getAccountInfo(pick.p.ammConfig, 'confirmed');
-      if (!configInfo) throw new ClmmError('CLMM fee config not found');
-      const leg = new ClmmLeg(pick.key, pick.info, configInfo, token, mintInfo.owner, anchor, fee, anchorInfo?.owner ?? TOKEN_PROGRAM_ID);
-      leg.setExtension(await conn.getAccountInfo(leg.extensionKey, 'confirmed'));
-      const arrays = leg.arraysToLoad();
-      const arrayInfos = await conn.getMultipleAccountsInfo(arrays.map((a) => a.key), 'confirmed');
-      arrays.forEach((a, i) => leg.setArray(a.start, a.key, arrayInfos[i] ?? null));
-      if (ClmmLeg.canFill(leg, pick.reserve)) return { leg, reserve: pick.reserve };
+      try {
+        const configInfo = await conn.getAccountInfo(pick.p.ammConfig, 'confirmed');
+        if (!configInfo) throw new ClmmError('CLMM fee config not found');
+        const leg = new ClmmLeg(pick.key, pick.info, configInfo, token, mintInfo.owner, anchor, fee, anchorInfo?.owner ?? TOKEN_PROGRAM_ID);
+        leg.setExtension(await conn.getAccountInfo(leg.extensionKey, 'confirmed'));
+        const arrays = leg.arraysToLoad();
+        const arrayInfos = await conn.getMultipleAccountsInfo(arrays.map((a) => a.key), 'confirmed');
+        arrays.forEach((a, i) => leg.setArray(a.start, a.key, arrayInfos[i] ?? null));
+        if (ClmmLeg.canFill(leg, pick.reserve)) return { leg, reserve: pick.reserve };
+      } catch {
+        // Next candidate.
+      }
     }
     return null;
   }

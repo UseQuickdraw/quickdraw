@@ -26,7 +26,9 @@ Coins priced in another token are routed through SOL in one transaction:
 - **A token whose liquidity is against USDC** (e.g. NEURALINK): SOL → USDC on Orca, then USDC → the token.
 - **A pump coin whose own pool is priced in yet another token** (e.g. Sling1M/BTC, where BTC is priced in WBTC): SOL → WBTC → BTC → Sling1M.
 
-When a token's SOL pools are shallow (under 20 SOL), the deepest of these options, valued in SOL, wins.
+When a token's SOL pools are shallow (under 20 SOL), the deepest of these options, valued in SOL, wins. A pool only counts if it can actually fill a small trade both ways, so one holding a little SOL but no liquidity near the price is passed over.
+
+Raydium CLMM pools with **dynamic fees** work too. Their fee rises with recent volatility: each swap steps one tick group at a time, and the fee is recomputed from a volatility accumulator that decays with time since the pool's last trade, exactly as the program does it (`states/pool_fee.rs`). Newer "customizable" pools, often the dynamic-fee ones, are found by their two mints, since their address includes a seed.
 
 The routes are built locally as Jupiter `route_v2` instructions from Jupiter's on-chain IDL. **No Jupiter API is called.** Jupiter hands each leg exactly what the previous one produced, so nothing is left behind in between, and enforces the final minimum. The pools are found from their addresses with no API, and priced with ports of each program's own swap maths, so quotes match the chain to the unit.
 
@@ -48,7 +50,7 @@ Each of these shows a message saying so:
 - coins that graduated to a Raydium AMM v4 pool;
 - pump.fun cashback curves priced in a token other than SOL;
 - the rarer fixed-price and linear curves;
-- Raydium CLMM pools with dynamic fees, trades that would reach resting limit orders, and quote tokens with a transfer hook.
+- Raydium CLMM trades that would reach resting limit orders, Orca pools with adaptive fees, and quote tokens with a transfer hook.
 
 ## Sending and confirmation
 
