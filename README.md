@@ -65,7 +65,7 @@ To update, download the new release, replace the folder's contents and click the
 The options page opens on install and walks you through:
 
 1. **A burner wallet.** Generate one (recommended) or import one made just for this. Back up its key; an optional backup file is encrypted with a password you pick.
-2. **Your endpoints.** An RPC and WebSocket URL from a provider such as Helius, QuickNode or Triton (free tiers work), plus an optional Helius Sender key. Paste a Helius key and the rest fills in. The public `api.mainnet-beta.solana.com` can't be used: it refuses browser extensions.
+2. **Your endpoints.** Quickdraw needs an RPC to reach Solana. The easiest is a free Helius key: paste it and everything fills in. **New to this? Follow the [2-minute Helius guide](docs/helius-api-key.md).** QuickNode, Triton or your own node work too; the public `api.mainnet-beta.solana.com` doesn't, because it refuses browser extensions.
 3. **A starting profile:** Default, Sniping or Swing.
 
 Want to look first? **Skip setup — preview the panel** shows what every click would do, with no wallet or RPC.

@@ -1,6 +1,6 @@
 # How Quickdraw works
 
-Everything happens in the extension: the content script draws the panel on the page, and the extension's service worker holds the wallet, keeps markets live, and builds, signs and sends trades. The only network calls are to the RPC, WebSocket and sender you configure.
+Everything happens in the extension: the content script draws the panel on the page, and the extension's service worker holds the wallet, keeps markets live, and builds, signs and sends trades. The only network calls are to the RPC, WebSocket and sender you configure ([getting a Helius key](helius-api-key.md)).
 
 ## From a page to a market
 
