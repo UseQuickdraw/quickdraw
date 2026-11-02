@@ -748,25 +748,35 @@ export class ClmmLeg implements SolLeg {
     assertPlainToken(token, mintInfo, { allowFee: true });
     // Only the token's fee is modelled, not one on the anchor.
     if (anchorInfo) assertPlainToken(anchor, anchorInfo);
-    // The deepest pool by the anchor it holds.
+    // The deepest pool by the anchor it holds that can actually fill a trade:
+    // a pool can hold anchor yet have no liquidity in range (DJT's SOL pool held
+    // 0.0001 SOL and could fill nothing), and choosing it fails every click.
     const vaults = await conn.getMultipleAccountsInfo(found.map((f) => (f.p.mint0.equals(anchor) ? f.p.vault0 : f.p.vault1)), 'confirmed');
-    const reserve = (i: number) => ClmmLeg.anchorReserve(vaults[i] ?? null);
-    let best = 0;
-    found.forEach((_, i) => {
-      if (reserve(i) > reserve(best)) best = i;
-    });
-    const pick = found[best]!;
-    const [configInfo, fee] = await Promise.all([
-      conn.getAccountInfo(pick.p.ammConfig, 'confirmed'),
-      transferFeeOf(conn, { mint: token, tokenProgram: mintInfo.owner, decimals: 0, supply: new BN(0) }, mintInfo),
-    ]);
-    if (!configInfo) throw new ClmmError('CLMM fee config not found');
-    const leg = new ClmmLeg(pick.key, pick.info, configInfo, token, mintInfo.owner, anchor, fee, anchorInfo?.owner ?? TOKEN_PROGRAM_ID);
-    leg.setExtension(await conn.getAccountInfo(leg.extensionKey, 'confirmed'));
-    const arrays = leg.arraysToLoad();
-    const arrayInfos = await conn.getMultipleAccountsInfo(arrays.map((a) => a.key), 'confirmed');
-    arrays.forEach((a, i) => leg.setArray(a.start, a.key, arrayInfos[i] ?? null));
-    return { leg, reserve: reserve(best) };
+    const ranked = found.map((f, i) => ({ ...f, reserve: ClmmLeg.anchorReserve(vaults[i] ?? null) })).sort((a, b) => (b.reserve > a.reserve ? 1 : b.reserve < a.reserve ? -1 : 0));
+    const fee = await transferFeeOf(conn, { mint: token, tokenProgram: mintInfo.owner, decimals: 0, supply: new BN(0) }, mintInfo);
+    for (const pick of ranked) {
+      const configInfo = await conn.getAccountInfo(pick.p.ammConfig, 'confirmed');
+      if (!configInfo) throw new ClmmError('CLMM fee config not found');
+      const leg = new ClmmLeg(pick.key, pick.info, configInfo, token, mintInfo.owner, anchor, fee, anchorInfo?.owner ?? TOKEN_PROGRAM_ID);
+      leg.setExtension(await conn.getAccountInfo(leg.extensionKey, 'confirmed'));
+      const arrays = leg.arraysToLoad();
+      const arrayInfos = await conn.getMultipleAccountsInfo(arrays.map((a) => a.key), 'confirmed');
+      arrays.forEach((a, i) => leg.setArray(a.start, a.key, arrayInfos[i] ?? null));
+      if (ClmmLeg.canFill(leg, pick.reserve)) return { leg, reserve: pick.reserve };
+    }
+    return null;
+  }
+
+  /** Whether a small trade (a thousandth of the anchor the pool holds) fills both ways. */
+  static canFill(leg: ClmmLeg, reserve: bigint): boolean {
+    const probe = reserve / 1000n;
+    if (probe <= 0n) return false;
+    try {
+      const tokens = leg.quote(probe, true);
+      return tokens > 0n && leg.quote(tokens, false) > 0n;
+    } catch {
+      return false;
+    }
   }
 }
 

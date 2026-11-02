@@ -108,6 +108,14 @@ describe.each([
     const m = await open(fx);
     expect(() => m.quoteBuy(new BN('1000000000000000'), 15)).toThrow(/smaller amount|liquidity/i);
   });
+
+  it('only counts a pool as usable when it can fill a small trade both ways', async () => {
+    const leg = (await open(fx)).leg as ClmmLeg;
+    expect(ClmmLeg.canFill(leg, 10_000_000_000n)).toBe(true);
+    // Holding next to nothing (DJT's SOL pool held 0.0001 SOL), or a probe past what's in range, fails.
+    expect(ClmmLeg.canFill(leg, 0n)).toBe(false);
+    expect(ClmmLeg.canFill(leg, 10n ** 21n)).toBe(false);
+  });
 });
 
 describe('Mars / NEURALINK (PumpSwap; 1% transfer fee, routed SOL -> USDC -> NEURALINK)', () => {
