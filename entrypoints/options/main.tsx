@@ -51,13 +51,23 @@ function App() {
 
   return (
     <main>
-      <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <img src="/icon/48.png" width={32} height={32} alt="" /> Quickdraw
-      </h1>
-      <p>
-        Self-custody trading panel. No platform fee, no server.{' '}
-        {state.settings.safety.dryRun && <b class="warn">Dry run is ON.</b>}
-      </p>
+      <header class="brand">
+        <img src="/icon/128.png" alt="" />
+        <div>
+          <h1>Quickdraw</h1>
+          <p class="tagline">
+            <span class="serif">Self-custody</span> trading panel · 0% platform fee
+          </p>
+        </div>
+        <span class="spacer" />
+        {state.preview ? (
+          <span class="chip preview">Preview</span>
+        ) : state.settings.safety.dryRun ? (
+          <span class="chip dry" title="Clicks are simulated, nothing is sent">Dry run</span>
+        ) : (
+          <span class="chip live" title="Clicks send real transactions">Live</span>
+        )}
+      </header>
       {state.preview && (
         <div class="card">
           <b>Preview mode.</b> There's no wallet yet, so the panel only shows what each click would do.{' '}
