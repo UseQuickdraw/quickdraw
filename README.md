@@ -1,8 +1,8 @@
-<p align="center"><img src="docs/x-banner.png" alt="Quickdraw: self-custody trading panel"></p>
+<p align="center"><img src="docs/x-banner.png" alt="Quickdraw: a self-custody trading panel browser extension"></p>
 
 <p align="center">
-  <b>A self-custody, one-click trading panel for Solana memecoin terminals.</b><br>
-  Your keys. Your RPC. 0% platform fee. Open source.
+  <b>A browser extension for one-click, self-custody trading on Solana memecoin terminals.</b><br>
+  Chrome · Brave · Edge. Your keys. Your RPC. 0% platform fee. Open source.
 </p>
 
 <p align="center">
@@ -21,7 +21,7 @@
 
 ---
 
-Quickdraw sits on top of **Axiom**, **GMGN** and **Padre** and trades the coin on screen with one click. It builds, signs and sends every swap itself, in your browser, from your own burner wallet, through your own RPC. There's no server, no account, no telemetry and **no platform fee**.
+Quickdraw is a **browser extension** for Chrome, Brave, Edge and other Chromium browsers. It adds a trading panel on top of **Axiom**, **GMGN** and **Padre** that trades the coin on screen with one click. It builds, signs and sends every swap itself, in your browser, from your own burner wallet, through your own RPC. There's no server, no account, no telemetry and **no platform fee**.
 
 <p align="center"><img src="docs/panel.png" width="609" alt="The Quickdraw panel over a chart on Axiom: buy and sell buttons, fee rows and the PnL footer"></p>
 
@@ -51,25 +51,14 @@ Quickdraw sits on top of **Axiom**, **GMGN** and **Padre** and trades the coin o
 
 ## Install
 
-### From a release
+Quickdraw isn't on the Chrome Web Store yet, so it installs from a release in a few clicks:
 
-1. Download `quickdraw-<version>-chrome.zip` and its `.sha256` from [Releases](https://github.com/UseQuickdraw/quickdraw/releases).
-2. Check the checksum (see [verifying a release](docs/development.md#verifying-a-release)).
-3. Unzip it, open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and pick the unzipped folder.
+1. Download the latest `quickdraw-<version>-chrome.zip` from [Releases](https://github.com/UseQuickdraw/quickdraw/releases) and unzip it.
+2. Open your browser's extensions page: `chrome://extensions`, `brave://extensions` or `edge://extensions`.
+3. Turn on **Developer mode**, click **Load unpacked**, and pick the unzipped folder.
+4. Pin Quickdraw to your toolbar. Its setup page opens by itself.
 
-Works in Chrome, Brave, Edge and other Chromium browsers.
-
-### From source
-
-```bash
-npm ci
-```
-
-```bash
-npm run build
-```
-
-Then load `.output/chrome-mv3` as an unpacked extension.
+To update, download the new release, replace the folder's contents and click the reload icon on Quickdraw's card. Each release has a `.sha256` checksum, and you can rebuild it from source to check it matches ([how](docs/development.md#verifying-a-release)).
 
 ## Getting started
 

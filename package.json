@@ -1,7 +1,7 @@
 {
   "name": "quickdraw",
   "version": "0.1.0",
-  "description": "Self-custody, open-source one-click trading panel for Solana memecoin terminals (Axiom, GMGN, Padre). Your keys, your RPC, 0% platform fee.",
+  "description": "Self-custody, open-source browser extension for one-click trading on Solana memecoin terminals (Axiom, GMGN, Padre). Your keys, your RPC, 0% platform fee.",
   "keywords": ["solana", "memecoin", "trading", "browser-extension", "self-custody", "pump.fun", "axiom"],
   "homepage": "https://github.com/UseQuickdraw/quickdraw#readme",
   "repository": { "type": "git", "url": "git+https://github.com/UseQuickdraw/quickdraw.git" },

@@ -18,7 +18,7 @@ npm test
 npm run typecheck
 ```
 
-`npm run build` writes `.output/chrome-mv3`; `npm run build:firefox` produces an experimental, untested Firefox build.
+`npm run build` writes `.output/chrome-mv3`: load that folder with **Load unpacked** on your browser's extensions page, and click Quickdraw's reload icon after each rebuild. `npm run build:firefox` produces an experimental, untested Firefox build.
 
 ## Layout
 
