@@ -6,7 +6,7 @@ import { PUMP_AMM_SDK } from '@pump-fun/pump-sdk/swap';
 import { accountOf, loadFixture, replay, type Fixture } from './helpers/fixtures';
 import { TEST_USER } from './helpers/compare';
 import { MarketManager } from '../src/solana/markets';
-import { describePlan, planTrade, sellTokens, slippageFor } from '../src/solana/trade';
+import { describePlan, perWalletIntent, planTrade, sellTokens, slippageFor } from '../src/solana/trade';
 import { defaultSettings } from '../src/settings/defaults';
 import { activeProfile } from '../src/settings/profiles';
 import { resolveAddress } from '../src/solana/resolver';
@@ -107,6 +107,19 @@ describe('MarketManager', () => {
 describe('trade planning', () => {
   const settings = defaultSettings();
   const profile = activeProfile(settings);
+
+  it('splits a buy across the selected wallets, never spending more than the total', () => {
+    const buy = { side: 'buy' as const, amount: 1, presetIndex: 5 };
+    expect(perWalletIntent(buy, 1)).toBe(buy);
+    expect(perWalletIntent(buy, 2)).toEqual({ ...buy, amount: 0.5 });
+    // 1 SOL over three wallets: 333,333,333 lamports each, one lamport left unspent.
+    const third = perWalletIntent(buy, 3);
+    expect(third.amount).toBe(0.333333333);
+    expect(Math.round(third.amount * 1e9) * 3).toBeLessThanOrEqual(1e9);
+    // A sell's percent is of each wallet's own holding: unchanged.
+    const sell = { side: 'sell' as const, amount: 50, presetIndex: 2 };
+    expect(perWalletIntent(sell, 2)).toBe(sell);
+  });
 
   it('sell percentages are exact at 100% and floor otherwise', () => {
     const bal = new BN('123456789');

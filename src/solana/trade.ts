@@ -22,6 +22,18 @@ export function slippageFor(profile: Profile, intent: TradeIntent): number {
   return preset?.slippagePct ?? profile.slippagePct;
 }
 
+/**
+ * One wallet's share of a click that trades from `wallets` wallets. A buy's
+ * amount is the total, split evenly (rounded down to the lamport, so the
+ * wallets never spend more than it); a sell's percent applies to each
+ * wallet's own holding, so it stays as it is.
+ */
+export function perWalletIntent<T extends TradeIntent>(intent: T, wallets: number): T {
+  if (intent.side !== 'buy' || wallets <= 1) return intent;
+  const lamports = Math.floor(Math.round(intent.amount * LAMPORTS_PER_SOL) / wallets);
+  return { ...intent, amount: lamports / LAMPORTS_PER_SOL };
+}
+
 export function sellTokens(balance: BN, pct: number): BN {
   if (pct >= 100) return balance.clone();
   // Basis-point precision is plenty for preset percentages.

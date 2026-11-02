@@ -25,6 +25,8 @@ import { pingSender } from '../src/solana/sender';
 import { SWEEP_CONFIRM_PHRASE } from '../src/constants';
 import { connectionFor, dropConnection } from '../src/solana/connection';
 import { TradeEngine, type TradeLogEntry } from '../src/solana/engine';
+import { perWalletIntent } from '../src/solana/trade';
+import { fmtSol } from '../src/ui/format';
 import { parseLedger } from '../src/ledger/store';
 import { platformFeesAvoided, type Position } from '../src/ledger/ledger';
 
@@ -232,7 +234,8 @@ function errorMessage(e: unknown): string {
 
 /**
  * One click, every selected wallet: each trades on its own (its own transaction,
- * so one can land while another fails) and reports as its own toast.
+ * so one can land while another fails) and reports as its own toast. A buy's
+ * amount is the total across them, split evenly; a sell's % is of each wallet's holding.
  */
 async function tradeAll(
   engs: { pubkey: string; eng: TradeEngine }[],
@@ -242,7 +245,8 @@ async function tradeAll(
 ): Promise<TradeResult> {
   const names = new Map((await keystore.listWallets()).map((w) => [w.pubkey, w.name]));
   const tabs = req.tabId === undefined ? undefined : new Set([req.tabId]);
-  const results = await Promise.allSettled(engs.map((e) => e.eng.trade(req, settings, profile)));
+  const share = perWalletIntent(req, engs.length);
+  const results = await Promise.allSettled(engs.map((e) => e.eng.trade(share, settings, profile)));
   let ok = 0;
   let empty = 0;
   results.forEach((r, i) => {
@@ -267,7 +271,10 @@ async function tradeAll(
   return {
     kind: 'multi',
     ok: ok > 0,
-    text: `${req.side === 'buy' ? 'Buy' : 'Sell'}: ${ok} of ${tried} wallet${tried === 1 ? '' : 's'} ${settings.safety.dryRun ? 'simulated OK' : 'sent'}`,
+    text:
+      req.side === 'buy'
+        ? `Buy ${fmtSol(req.amount)} SOL split ${fmtSol(share.amount)} each: ${ok} of ${tried} wallet${tried === 1 ? '' : 's'} ${settings.safety.dryRun ? 'simulated OK' : 'sent'}`
+        : `Sell: ${ok} of ${tried} wallet${tried === 1 ? '' : 's'} ${settings.safety.dryRun ? 'simulated OK' : 'sent'}`,
     detail: empty ? `${empty} selected wallet${empty === 1 ? '' : 's'} had none to sell` : '',
   };
 }

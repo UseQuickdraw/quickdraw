@@ -42,7 +42,7 @@ Quickdraw is a **browser extension** for Chrome, Brave, Edge and other Chromium 
 - One-click buys and sells with presets, in **Fast** or **Eco** landing tiers, and three switchable fee profiles.
 - Sell by %, by SOL amount, or **Sell Init.** to take out exactly what you put in.
 - Live position and PnL per coin, in SOL or USD, with a ledger you can export as CSV.
-- Several wallets at once: every click trades from each selected wallet.
+- Several wallets at once: every click trades from each selected wallet, with a buy's amount split evenly between them (1 SOL across two wallets is 0.5 each).
 - Hotkeys, per-button fee overrides, and a sweep to your main wallet.
 - Fully adjustable look: rows, button shape, colours, a background image, pop-up position and duration, sounds.
 - Dry run mode that simulates every trade on chain without sending it.
