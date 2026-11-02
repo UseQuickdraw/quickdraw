@@ -33,7 +33,7 @@ import { PUMP_AMM_PROGRAM_ID, PUMP_AMM_SDK, canonicalPumpPoolPda } from '@pump-f
 import type { MintInfo } from '../solana/tokens';
 import { JUPITER_PROGRAM_ID, routeMinOut, routeV2Instruction, slippageBps } from './jupiter';
 import { PumpPool } from './pumpPool';
-import { hopAtas, nonSolQuote, routeCuFloor, openRoute, transferFeeOf, type Route, type SolLeg } from './routes';
+import { hopAtas, nonSolQuoteNamed, routeCuFloor, openRoute, transferFeeOf, type Route, type SolLeg } from './routes';
 import { VenueError, impactPct, type Market, type Quote, type VenueAdapter } from './types';
 
 class PoolMarket implements Market {
@@ -216,7 +216,7 @@ export const pumpSwap: VenueAdapter = {
     if (!mintInfo) throw new VenueError('Mint not found on chain', 'NOT_FOUND');
     if (await transferFeeOf(conn, mint, mintInfo)) throw new VenueError('This coin charges a transfer fee in a PumpSwap pool (not supported yet)', 'UNSUPPORTED');
     const route = await openRoute(conn, quoteMint, pool.key);
-    if (!route || !route.leg.tokenProgram.equals(pool.quoteTokenProgram)) throw nonSolQuote(quoteMint);
+    if (!route || !route.leg.tokenProgram.equals(pool.quoteTokenProgram)) throw await nonSolQuoteNamed(conn, quoteMint);
     pool.setQuoteTransferFee(route.quoteFee);
     return new PoolMarket(mint, pool.key, pool, route);
   },

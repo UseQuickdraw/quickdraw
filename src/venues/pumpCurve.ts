@@ -39,7 +39,7 @@ import {
 import { tokenAccountMint, tokenAmount, type MintInfo } from '../solana/tokens';
 import { JUPITER_PROGRAM_ID, SWAP, routeMinOut, routeV2Instruction, slippageBps, type RouteLeg } from './jupiter';
 import { assertPlainToken } from './raydiumClmm';
-import { hopAtas, nonSolQuote, routeCuFloor, openRoute, type Route, type SolLeg } from './routes';
+import { hopAtas, nonSolQuoteNamed, routeCuFloor, openRoute, type Route, type SolLeg } from './routes';
 import { VenueError, impactPct, lessSlippage, plusSlippage, type Market, type Quote, type VenueAdapter } from './types';
 
 const PROTOCOL_TTL_MS = 60_000;
@@ -379,7 +379,7 @@ export const pumpCurve: VenueAdapter = {
     // A transfer fee on the quote is priced (see quoteFee); hooks and frozen accounts are still refused.
     assertPlainToken(curve.quoteMint, quoteInfo, { allowFee: true });
     const route = await openRoute(conn, curve.quoteMint, curvePda);
-    if (!route || !route.leg.tokenProgram.equals(quoteInfo.owner)) throw nonSolQuote(curve.quoteMint);
+    if (!route || !route.leg.tokenProgram.equals(quoteInfo.owner)) throw await nonSolQuoteNamed(conn, curve.quoteMint);
     return new CurveMarket(mint, curvePda, curveInfo, curveAtaInfo ?? null, global, feeConfig, route, quoteInfo.owner);
   },
 

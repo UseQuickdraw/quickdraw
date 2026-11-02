@@ -82,11 +82,24 @@ export function quoteSymbol(quote: PublicKey): string {
   return ROUTED_QUOTES[k]?.symbol ?? KNOWN_QUOTES[k] ?? `another token (${k.slice(0, 4)}…)`;
 }
 
-export function nonSolQuote(quote: PublicKey): VenueError {
+export function nonSolQuote(quote: PublicKey, symbol?: string): VenueError {
   return new VenueError(
-    `This coin trades against ${quoteSymbol(quote)}, not SOL, and that token has no SOL pool Quickdraw can route through yet.`,
+    `This coin trades against ${symbol ?? quoteSymbol(quote)}, not SOL, and that token has no SOL pool Quickdraw can route through yet.`,
     'NON_SOL_QUOTE',
   );
+}
+
+/** As `nonSolQuote`, naming the quote token by its on-chain symbol when it has one (DJT rather than "DJTu…"). */
+export async function nonSolQuoteNamed(conn: Connection, quote: PublicKey): Promise<VenueError> {
+  const k = quote.toBase58();
+  if (ROUTED_QUOTES[k] || KNOWN_QUOTES[k]) return nonSolQuote(quote);
+  try {
+    const info = await conn.getAccountInfo(quote, 'confirmed');
+    const meta = info ? await fetchTokenMeta(conn, { mint: quote, tokenProgram: info.owner, decimals: 0, supply: new BN(0) }, 1) : null;
+    return nonSolQuote(quote, meta?.symbol ? `${meta.symbol} (${k.slice(0, 4)}…)` : undefined);
+  } catch {
+    return nonSolQuote(quote);
+  }
 }
 
 /** The SOL side of a route: swaps SOL and the quote token both ways, on one pool or a chain of them. */

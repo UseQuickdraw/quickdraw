@@ -23,7 +23,7 @@ import BN from 'bn.js';
 import { tokenAmount, type MintInfo } from '../solana/tokens';
 import { JUPITER_PROGRAM_ID, SWAP, routeMinOut, routeV2Instruction, slippageBps, type RouteLeg } from './jupiter';
 import { LAUNCHLAB_PROGRAM_ID, decodePool as decodeLaunchLabPool, launchLabPoolByBase, launchLabPoolPda, migrateType } from './launchLab';
-import { ROUTED_QUOTES, assertNoQuoteFee, routeCuFloor, hopAtas, nonSolQuote, openRoute, transferFeeOf, transferFeeOn, type Route, type TransferFee } from './routes';
+import { ROUTED_QUOTES, assertNoQuoteFee, routeCuFloor, hopAtas, nonSolQuoteNamed, openRoute, transferFeeOf, transferFeeOn, type Route, type TransferFee } from './routes';
 import { VenueError, impactPct, lessSlippage, type Market, type Quote, type VenueAdapter } from './types';
 import type { SolLeg } from './routes';
 
@@ -430,7 +430,7 @@ export const raydiumCpmm: VenueAdapter = {
       routed ? openRoute(conn, quoteMint, address) : null,
       transferFeeOf(conn, mint, mintInfo),
     ]);
-    if (routed && !route) throw nonSolQuote(quoteMint);
+    if (routed && !route) throw await nonSolQuoteNamed(conn, quoteMint);
     if (route) assertNoQuoteFee(route);
     return new CpmmMarket(mint, address, pool, configInfo, vault0, vault1, route, transferFee);
   },

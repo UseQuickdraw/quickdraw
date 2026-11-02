@@ -20,7 +20,7 @@ import type { MintInfo } from '../solana/tokens';
 import { JUPITER_PROGRAM_ID, routeMinOut, routeV2Instruction, slippageBps } from './jupiter';
 import { CLMM_PROGRAM_ID, ClmmLeg, decodeClmmPool } from './raydiumClmm';
 import { WHIRLPOOL_PROGRAM_ID, decodeWhirlpool } from './whirlpool';
-import { ChainLeg, ROUTED_QUOTES, USDC_MINT, assertNoQuoteFee, hopAtas, nonSolQuote, openRoute, routeCuFloor, solRoute, type Route } from './routes';
+import { ChainLeg, ROUTED_QUOTES, USDC_MINT, assertNoQuoteFee, hopAtas, nonSolQuoteNamed, openRoute, routeCuFloor, solRoute, type Route } from './routes';
 import { VenueError, impactPct, type Market, type Quote, type VenueAdapter } from './types';
 
 const QUOTE_MINTS = new Set([NATIVE_MINT.toBase58(), USDC_MINT.toBase58(), ...Object.keys(ROUTED_QUOTES)]);
@@ -60,7 +60,7 @@ async function quotedRoute(conn: Connection, mint: PublicKey, pool: PublicKey): 
   const quote = p.mint0.equals(mint) ? p.mint1 : p.mint0;
   const [quoteRoute, coin] = await Promise.all([openRoute(conn, quote, pool), ClmmLeg.open(conn, mint, quote)]);
   if (!coin) return null;
-  if (!quoteRoute) throw nonSolQuote(quote);
+  if (!quoteRoute) throw await nonSolQuoteNamed(conn, quote);
   assertNoQuoteFee(quoteRoute);
   return {
     symbol: quoteRoute.symbol,
