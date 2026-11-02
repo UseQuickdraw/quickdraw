@@ -88,7 +88,7 @@ export function Wizard({ state, onDone }: { state: WalletState; onDone(): void }
           </label>
           {mode === 'import' && (
             <>
-              <p class="warn">Never import your main wallet. Paste a base58 secret key or a JSON byte array.</p>
+              <p class="muted">Paste a base58 secret key or a JSON byte array.</p>
               <textarea
                 value={importText}
                 spellcheck={false}

@@ -8,8 +8,7 @@ import { fmtSol, shortAddr } from '../../src/ui/format';
 import { ConvertWalletCard } from '../../src/ui/options/WalletTab';
 
 // The toolbar popup: the wallets page (total balance, every wallet with its
-// balance, and which ones trade), with tabs along the bottom that open the
-// options page.
+// balance, and which ones trade), with a Settings tab that opens the options page.
 
 const svg = (d: string) => () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -18,7 +17,6 @@ const svg = (d: string) => () => (
 );
 const Icon = {
   wallet: svg('M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1h1a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM15 12h.01M17 8h3v8h-3a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2z'),
-  ledger: svg('M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01'),
   gear: svg('M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'),
   refresh: svg('M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5'),
   copy: svg('M9 9h10v10H9zM5 15V5h10'),
@@ -61,7 +59,7 @@ function Popup() {
   };
   useEffect(() => void refresh(), []);
 
-  const open = (section: 'wallet' | 'endpoints' | 'settings' | 'ledger') => {
+  const open = (section: 'wallet' | 'endpoints' | 'settings') => {
     void call({ type: 'OPEN_OPTIONS', section }).then(() => window.close());
   };
   const select = async (pubkeys: string[]) => {
@@ -94,19 +92,22 @@ function Popup() {
         <h1>Wallets</h1>
         <span class="spacer" />
         {ready && (
-          <select
-            class="pill"
-            title="Fee profile"
-            value={s.activeProfileId}
-            // Only the active profile changes; saving a whole copy could undo edits made elsewhere.
-            onChange={(e) => void call({ type: 'SET_PROFILE_SLOT', slot: (e.target as HTMLSelectElement).selectedIndex }).then(refresh)}
-          >
-            {s.profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <label class="profile">
+            <span>Profile</span>
+            <select
+              class="pill"
+              title="Fee profile"
+              value={s.activeProfileId}
+              // Only the active profile changes; saving a whole copy could undo edits made elsewhere.
+              onChange={(e) => void call({ type: 'SET_PROFILE_SLOT', slot: (e.target as HTMLSelectElement).selectedIndex }).then(refresh)}
+            >
+              {s.profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
         <span class={`mode mode-${mode === 'Live' ? 'live' : mode === 'Dry run' ? 'dry' : 'setup'}`}>{mode}</span>
       </header>
@@ -125,7 +126,7 @@ function Popup() {
 
             <section class="total">
               <div class="label">
-                SOL · Total balance
+                <span>Total · SOL across your wallets</span>
                 <button class="icon" title="Refresh balances" disabled={loading} onClick={() => void refresh()}>
                   <span class={loading ? 'spin' : ''}>
                     <Icon.refresh />
@@ -201,9 +202,6 @@ function Popup() {
       <nav class="tabs">
         <button class="on" title="Wallets">
           <Icon.wallet />
-        </button>
-        <button title="Ledger: positions and trade history" onClick={() => open('ledger')}>
-          <Icon.ledger />
         </button>
         <button title="Settings" onClick={() => open('settings')}>
           <Icon.gear />

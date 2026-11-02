@@ -254,7 +254,7 @@ function AddWallet({ run }: { run: Run }) {
       <input placeholder="Name (optional)" maxLength={32} value={name} onInput={(e) => setName((e.target as HTMLInputElement).value)} style={{ maxWidth: 220, marginTop: 8 }} />
       {mode === 'import' && (
         <>
-          <p class="warn">Never import your main wallet. Paste a base58 secret key or a JSON byte array.</p>
+          <p class="muted">Paste a base58 secret key or a JSON byte array.</p>
           <textarea
             value={secret}
             spellcheck={false}
