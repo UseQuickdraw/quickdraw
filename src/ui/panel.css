@@ -194,6 +194,8 @@ select:focus { border-color: var(--accent); }
 }
 .it-badge.it-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 60%, transparent); }
 .it-err { color: var(--warn); font-size: 11px; padding: 2px 12px 0; user-select: text; }
+/* A coin whose creator can freeze, take back or hook tokens. */
+.it-risk { color: var(--sell); font-weight: 600; }
 
 /* --------------------------------------------------------- buy / sell */
 .it-side { padding: 8px 12px 6px; --c: var(--buy); }

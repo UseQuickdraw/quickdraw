@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
+import type { MintRisk } from '../solana/tokens';
 import type { BuyQuote, MarketView, PanelEvent, Result, SellQuote, TradeResult, WalletRow, WalletState } from '../messages';
 import type { BuyPreset, PanelState, Profile, TierName } from '../settings/schema';
 import { activeProfile } from '../settings/profiles';
@@ -125,6 +126,19 @@ function layerZ(layer: keyof typeof LAYER_Z, site: string): number {
   return host ? BELOW_POPUPS_Z[host]! : LAYER_Z[layer];
 }
 
+const RISK_TEXT: Record<MintRisk, string> = {
+  freeze: "can freeze your tokens so you can't sell",
+  delegate: 'can take your tokens back',
+  hook: 'runs its own code on every transfer',
+};
+/** "<subject> can freeze your tokens so you can't sell and can take your tokens back". */
+function riskText(risks: readonly MintRisk[], subject = 'Its creator'): string {
+  const parts = risks.map((r) => RISK_TEXT[r]);
+  return `${subject} ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]}`;
+}
+/** How long a second buy click has to confirm a risky coin. */
+const RISK_CONFIRM_MS = 5_000;
+
 function resolveBuyTier(p: BuyPreset | null, sol: number, toggle: TierName, profile: Profile): TierName {
   if (p?.tier) return p.tier;
   // A fixed Fast tip dominates small trades, so small buys drop to Eco (shown on the button).
@@ -172,6 +186,9 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
   useEffect(() => watchPanelImage(setBgImage), []);
   const [busy, setBusy] = useState(false);
   // The hovered sell button: the % of the holding it would sell, shown in the sell header.
+  // A coin whose creator can freeze, take back or hook tokens: the first buy only warns, a second click within a few seconds buys.
+  const riskArmed = useRef<{ mint: string; until: number } | null>(null);
+  const riskAccepted = useRef(new Set<string>());
   const [sellHover, setSellHover] = useState<{ pct: number; tier: TierName; presetIndex: number | null } | null>(null);
   const [market, setMarket] = useState<MarketView | null>(null);
   const [marketErr, setMarketErr] = useState<string | null>(null);
@@ -202,6 +219,19 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
     });
     return () => void (stale = true);
   }, [buyQuoteKey, market?.spotSolPerToken]);
+  // The hovered button's trade is built ahead in the worker (unsigned), so a click only signs and sends.
+  const prebuildTrade = sellHover
+    ? { side: 'sell' as const, amount: Math.min(100, sellHover.pct), tier: sellHover.tier, presetIndex: sellHover.presetIndex }
+    : buyHover
+      ? { side: 'buy' as const, amount: buyHover.sol, tier: buyHover.tier, presetIndex: buyHover.presetIndex }
+      : null;
+  const prebuildKey = prebuildTrade && market && !state?.preview && prebuildTrade.amount > 0 ? JSON.stringify([market.mint, prebuildTrade]) : null;
+  useEffect(() => {
+    if (!prebuildKey) return;
+    const [mint, t] = JSON.parse(prebuildKey) as [string, NonNullable<typeof prebuildTrade>];
+    void send({ type: 'PREBUILD', trade: { mint, ...t } });
+    return () => void send({ type: 'PREBUILD', trade: null });
+  }, [prebuildKey]);
   // A click before the coin has loaded waits for it here instead of the buttons looking dead.
   const marketNow = useRef<{ market: MarketView | null; err: string | null }>({ market: null, err: null });
   marketNow.current = { market, err: marketErr };
@@ -454,6 +484,16 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
         pushToast({ id, level: 'error', text: marketNow.current.err ?? 'This coin is still loading. Try again in a moment.' });
         return;
       }
+    }
+    if (side === 'buy' && m.risks?.length && !riskAccepted.current.has(m.mint)) {
+      const armed = riskArmed.current;
+      if (!armed || armed.mint !== m.mint || Date.now() > armed.until) {
+        riskArmed.current = { mint: m.mint, until: Date.now() + RISK_CONFIRM_MS };
+        setBusy(false);
+        pushToast({ id, level: 'error', text: `Careful: ${riskText(m.risks, "this coin's creator")}.`, detail: 'Click buy again within 5s to buy anyway.' });
+        return;
+      }
+      riskAccepted.current.add(m.mint);
     }
     pushToast({ id, level: 'info', text: `${doing}…`, trade: true });
     const r: Result<TradeResult> = await send({ type: 'TRADE', side, mint: m.mint, amount, tier: t, presetIndex, clickedAt });
@@ -892,6 +932,11 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
         </header>
         {feeEditor}
         {marketErr && <div class="it-err">{marketErr}</div>}
+        {!!market?.risks?.length && (
+          <div class="it-err it-risk" title="Read from the coin's mint account. Plain pump.fun coins have none of these.">
+            ⚠ {riskText(market.risks)}.
+          </div>
+        )}
         {state.needsPassword && address && <div class="it-err">Enter your old password once in the extension to finish converting the wallet.</div>}
 
         <section class="it-side it-buy">

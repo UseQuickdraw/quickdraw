@@ -213,6 +213,11 @@ export class BlockhashCache {
     return this.inflight;
   }
 
+  /** The cached blockhash if it's fresh, without fetching. */
+  peek(now = Date.now()): CachedBlockhash | null {
+    return this.current && now - this.current.fetchedAt < MAX_AGE_MS ? this.current : null;
+  }
+
   /** The cached blockhash when fresh, otherwise a fetch (only after idle periods). */
   async get(now = Date.now()): Promise<CachedBlockhash & { cached: boolean }> {
     if (this.current && now - this.current.fetchedAt < MAX_AGE_MS) return { ...this.current, cached: true };

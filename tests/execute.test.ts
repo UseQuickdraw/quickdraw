@@ -238,6 +238,36 @@ describe('TradeEngine (dry run)', () => {
     engine.dispose();
   });
 
+  it('signs the trade built while hovering, unless the market moved before the click', async () => {
+    const { engine } = engineFor(pool, () => ({}));
+    const settings = defaultSettings();
+    const profile = activeProfile(settings);
+    const view = await engine.markets.watch(pool.address, 1);
+    const req = { side: 'buy' as const, amount: 0.1, presetIndex: 1, mint: view.mint, tier: 'eco' as const };
+    const hovered = () => (engine as unknown as { prebuilt: unknown }).prebuilt !== null;
+
+    engine.prebuild(req, settings, profile);
+    await vi.waitFor(() => expect(hovered()).toBe(true));
+    const fast = await engine.trade({ ...req, clickedAt: Date.now(), tabId: 1 }, settings, profile);
+    expect(fast.kind === 'simulated' && fast.ok).toBe(true);
+    expect(fast.detail).toMatch(/prebuilt, sign/);
+
+    // The pool moves after the build: the click builds afresh rather than sign a stale quote.
+    engine.prebuild(req, settings, profile);
+    await vi.waitFor(() => expect(hovered()).toBe(true));
+    (engine.markets as unknown as { byMint: Map<string, { version: number }> }).byMint.get(view.mint)!.version++;
+    const fresh = await engine.trade({ ...req, clickedAt: Date.now(), tabId: 1 }, settings, profile);
+    expect(fresh.detail).toMatch(/build\+sign/);
+
+    // A different button than the one hovered isn't served the hovered build.
+    engine.prebuild(req, settings, profile);
+    await vi.waitFor(() => expect(hovered()).toBe(true));
+    const other = await engine.trade({ ...req, amount: 0.2, clickedAt: Date.now(), tabId: 1 }, settings, profile);
+    expect(other.detail).toMatch(/build\+sign/);
+    engine.prebuild(null, settings, profile);
+    engine.dispose();
+  });
+
   it('books a sell made elsewhere even when the RPC lists it late', async () => {
     vi.useFakeTimers();
     try {

@@ -28,6 +28,8 @@ interface Entry {
   lastPush: number;
   pushTimer: ReturnType<typeof setTimeout> | null;
   symbol: string | null;
+  /** Bumped on every change to the market's state or the wallet's token account, so a prebuilt trade can tell it's stale. */
+  version: number;
 }
 
 export type MarketListener = (view: MarketView, tabs: ReadonlySet<number>) => void;
@@ -102,6 +104,11 @@ export class MarketManager {
     return e ? { market: e.market, userAta: e.userAta, userAtaInfo: e.userAtaInfo } : null;
   }
 
+  /** Changes whenever the mint's market state or the wallet's token account does; -1 when it isn't watched. */
+  stateVersion(mint: string): number {
+    return this.byMint.get(mint)?.version ?? -1;
+  }
+
   /** Wallet SOL balance from the subscription, or null before the first read. */
   solLamports(): number | null {
     return this.solLamports_;
@@ -125,6 +132,7 @@ export class MarketManager {
     this.unsubscribe(e);
     e.market = market;
     if (ataInfo !== undefined) e.userAtaInfo = ataInfo;
+    e.version++;
     this.subscribe(e);
     this.push(e, true);
     return e.market;
@@ -174,7 +182,7 @@ export class MarketManager {
       fetchTokenMeta(this.conn, resolved.mint),
     ]);
     if (this.byMint.has(mintKey)) return mintKey; // a concurrent watch won the race
-    const e: Entry = { market, tabs: new Set(), subs: [], userAta, userAtaInfo, lastPush: 0, pushTimer: null, symbol: meta?.symbol || null };
+    const e: Entry = { market, tabs: new Set(), subs: [], userAta, userAtaInfo, lastPush: 0, pushTimer: null, symbol: meta?.symbol || null, version: 0 };
     this.byMint.set(mintKey, e);
     this.subscribe(e);
     return mintKey;
@@ -187,6 +195,7 @@ export class MarketManager {
           key,
           (info) => {
             e.market.apply(key, info);
+            e.version++;
             this.push(e);
             if (!e.market.tradable() && e.market.venue.startsWith('PUMP_CURVE')) this.followMigration(e);
           },
@@ -200,6 +209,7 @@ export class MarketManager {
         (info) => {
           const before = tokenAmount(e.userAtaInfo);
           e.userAtaInfo = info.data.length ? info : null;
+          e.version++;
           this.push(e, true);
           if (!tokenAmount(e.userAtaInfo).eq(before)) this.onTokenChange?.(e.market.mint.mint.toBase58());
         },
@@ -266,6 +276,7 @@ export class MarketManager {
       decimals: m.mint.decimals,
       tradable: m.tradable(),
       spotSolPerToken: m.spotLamportsPerToken() / LAMPORTS_PER_SOL,
+      risks: m.mint.risks,
       tokenBalance: Number(raw.toString()) / 10 ** m.mint.decimals,
       solBalance: this.solLamports_ === null ? null : this.solLamports_ / LAMPORTS_PER_SOL,
       boughtSol: pos ? pos.boughtLamports / LAMPORTS_PER_SOL : null,

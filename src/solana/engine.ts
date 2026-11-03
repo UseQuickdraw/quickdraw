@@ -7,6 +7,7 @@ import {
   SystemProgram,
   TransactionMessage,
   VersionedTransaction,
+  type AccountInfo,
   type Connection,
   type Keypair,
   type VersionedTransactionResponse,
@@ -101,6 +102,34 @@ export interface EngineEvents {
 }
 
 const now = () => performance.timeOrigin + performance.now();
+/** How often a hovered trade is checked against the market and rebuilt if it moved, and for how long. */
+const PREBUILD_EVERY_MS = 100;
+const PREBUILD_FOR_MS = 15_000;
+
+/** What a trade button would do: enough to build its transaction. */
+export type PrebuildRequest = { mint: string; side: 'buy' | 'sell'; amount: number; tier: TierName; presetIndex: number | null };
+
+/** A quoted and built (unsigned) trade, and what it was built against. */
+interface Prepared {
+  plan: TradePlan;
+  built: BuiltTrade;
+  bh: { blockhash: string; lastValidBlockHeight: number; cached: boolean };
+  market: Market;
+  version: number;
+  cuPrice: number;
+  ownTables: unknown;
+  key: string;
+}
+
+/** The request plus every setting the build reads, so a settings change between hover and click forces a rebuild. */
+function prebuildKey(req: PrebuildRequest, settings: Settings, profile: Profile): string {
+  return JSON.stringify([req.mint, req.side, req.amount, req.tier, req.presetIndex, settings.safety, settings.sendMode, profile]);
+}
+
+function presetFor(req: PrebuildRequest, profile: Profile): { tipSol: number | null; cuPriceMicroLamports: number | null } | null {
+  if (req.presetIndex === null) return null;
+  return (req.side === 'buy' ? profile.buyPresets : profile.sellPresets)[req.presetIndex] ?? null;
+}
 /** How far back a token's history is read when it was bought outside the extension. */
 const BACKFILL_LIMIT = 60;
 /**
@@ -138,6 +167,8 @@ export class TradeEngine {
   readonly markets: MarketManager;
   private readonly backfilled = new Set<string>();
   private readonly resyncs = new Map<string, ReturnType<typeof setTimeout>>();
+  private hover: { key: string; timer: ReturnType<typeof setInterval> } | null = null;
+  private prebuilt: Prepared | null = null;
   readonly blockhash: BlockhashCache;
   readonly fees: PriorityFees;
   cu = new CuCalibration();
@@ -279,6 +310,11 @@ export class TradeEngine {
   dispose(): void {
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
+    if (this.hover) clearInterval(this.hover.timer);
+    this.hover = null;
+    this.prebuilt = null;
+    for (const t of this.resyncs.values()) clearTimeout(t);
+    this.resyncs.clear();
     this.markets.dispose();
   }
 
@@ -300,34 +336,14 @@ export class TradeEngine {
     }
 
     const preTokens = this.markets.tokenBalance(req.mint);
-    const plan = planTrade(market, req, settings, profile, preTokens);
-    const preset = req.presetIndex === null ? null : (req.side === 'buy' ? profile.buyPresets : profile.sellPresets)[req.presetIndex];
-    const tierCfg = profile.tiers[req.tier];
-    const cuPrice = preset?.cuPriceMicroLamports ?? tierCfg.cuPriceMicroLamports ?? this.fees.get(tierCfg.priorityLevel);
-    let bh = await this.blockhash.get();
     // Resolve the destination before signing, so a bad config fails without a signed tx lying around.
     const sendUrl = settings.safety.dryRun ? null : sendUrlFor(settings, profile, req.tier, this.endpoints);
 
-    const user = this.signer.publicKey;
-    const input = (): BuildInput => ({
-      market,
-      plan,
-      user,
-      userAta: live!.userAta,
-      userAtaInfo: live!.userAtaInfo,
-      tier: req.tier,
-      tipSol: preset?.tipSol ?? null,
-      profile,
-      settings,
-      blockhash: bh.blockhash,
-      cuLimit: (k) => this.cu.limit(k),
-      cuPrice,
-      closeAfterFullSell: settings.safety.autoCloseAta,
-      ownTables: this.own.current(),
-    });
-    let built: BuiltTrade;
+    // Built while the button was hovered, against exactly this state: only signing is left.
+    const ready = this.takePrebuilt(req, settings, profile, market);
+    let prepared: Prepared;
     try {
-      built = await buildTrade(input());
+      prepared = ready ?? (await this.prepare(req, settings, profile, market, live));
     } catch (e) {
       if (!(e instanceof TooBigError)) throw e;
       // A long route nobody's public tables cover: hold its accounts in this wallet's own table (once), then trade.
@@ -339,12 +355,12 @@ export class TradeEngine {
       }
       if (req.tabId !== undefined) this.events.toast(req.tabId, { id: `table-${req.mint}`, level: 'info', text: `Setting up this route (one time, about ${fmtSol(rent)} SOL rent)…` });
       await this.own.ensure(e.accounts);
-      bh = await this.blockhash.get();
-      built = await buildTrade(input());
+      prepared = await this.prepare(req, settings, profile, market, live);
     }
+    const { plan, built, bh } = prepared;
     built.tx.sign([this.signer]);
     const signed = now();
-    const buildTiming = `click→worker ${Math.round(received - req.clickedAt)} ms · build+sign ${Math.round(signed - received)} ms${bh.cached ? '' : ' (blockhash fetched)'}`;
+    const buildTiming = `click→worker ${Math.round(received - req.clickedAt)} ms · ${ready ? 'prebuilt, sign' : 'build+sign'} ${Math.round(signed - received)} ms${bh.cached ? '' : ' (blockhash fetched)'}`;
 
     if (sendUrl === null) return this.dryRun(req, market, plan, built, live.userAta, preTokens, signed, buildTiming);
 
@@ -399,6 +415,89 @@ export class TradeEngine {
       text: `${what} sent (${req.tier === 'fast' ? 'Fast' : 'Eco'}) · waiting to land…`,
       detail: `${describePlan(market, plan)} · ${buildTiming} · click→sent ${Math.round(sentAt - req.clickedAt)} ms`,
     };
+  }
+
+  /** Quotes and builds (unsigned) one trade against the market as it is now. Throws TooBigError for a route that needs a lookup table. */
+  private async prepare(
+    req: PrebuildRequest,
+    settings: Settings,
+    profile: Profile,
+    market: Market,
+    live: { userAta: PublicKey; userAtaInfo: AccountInfo<Buffer> | null },
+  ): Promise<Prepared> {
+    const version = this.markets.stateVersion(req.mint);
+    const plan = planTrade(market, req, settings, profile, this.markets.tokenBalance(req.mint));
+    const cuPrice = this.cuPriceFor(req, profile);
+    const bh = await this.blockhash.get();
+    const ownTables = this.own.current();
+    const built = await buildTrade({
+      market,
+      plan,
+      user: this.signer.publicKey,
+      userAta: live.userAta,
+      userAtaInfo: live.userAtaInfo,
+      tier: req.tier,
+      tipSol: presetFor(req, profile)?.tipSol ?? null,
+      profile,
+      settings,
+      blockhash: bh.blockhash,
+      cuLimit: (k) => this.cu.limit(k),
+      cuPrice,
+      closeAfterFullSell: settings.safety.autoCloseAta,
+      ownTables,
+    });
+    return { plan, built, bh, market, version, cuPrice, ownTables, key: prebuildKey(req, settings, profile) };
+  }
+
+  private cuPriceFor(req: PrebuildRequest, profile: Profile): number {
+    const tierCfg = profile.tiers[req.tier];
+    return presetFor(req, profile)?.cuPriceMicroLamports ?? tierCfg.cuPriceMicroLamports ?? this.fees.get(tierCfg.priorityLevel);
+  }
+
+  /**
+   * The panel's pointer is on a trade button: build that trade now (unsigned),
+   * and keep rebuilding it as the market moves, so a click only has to sign and
+   * send. Null clears it. Nothing is signed here.
+   */
+  prebuild(req: PrebuildRequest | null, settings: Settings, profile: Profile): void {
+    if (this.hover) clearInterval(this.hover.timer);
+    this.hover = null;
+    this.prebuilt = null;
+    if (!req) return;
+    const key = prebuildKey(req, settings, profile);
+    const started = Date.now();
+    let building = false;
+    const tick = async () => {
+      if (building) return;
+      if (Date.now() - started > PREBUILD_FOR_MS) return this.prebuild(null, settings, profile);
+      const live = this.markets.get(req.mint);
+      if (!live || !live.market.tradable()) return;
+      const p = this.prebuilt;
+      if (p && p.market === live.market && p.version === this.markets.stateVersion(req.mint)) return; // still current
+      building = true;
+      try {
+        const next = await this.prepare(req, settings, profile, live.market, live);
+        if (this.hover?.key === key) this.prebuilt = next;
+      } catch {
+        // Nothing to prebuild (no tokens to sell, a route needing a table…): the click builds and reports it.
+      } finally {
+        building = false;
+      }
+    };
+    this.hover = { key, timer: setInterval(() => void tick(), PREBUILD_EVERY_MS) };
+    void tick();
+  }
+
+  /** The prebuilt trade for this click, if it was built for exactly this request against the current state; used once. */
+  private takePrebuilt(req: PrebuildRequest, settings: Settings, profile: Profile, market: Market): Prepared | null {
+    const p = this.prebuilt;
+    this.prebuilt = null;
+    if (!p || p.key !== prebuildKey(req, settings, profile) || p.market !== market) return null;
+    if (p.version !== this.markets.stateVersion(req.mint)) return null; // the pool or the holding moved since
+    if (p.bh.blockhash !== this.blockhash.peek()?.blockhash || p.ownTables !== this.own.current()) return null;
+    if (p.cuPrice !== this.cuPriceFor(req, profile)) return null;
+    if (p.built.cuLimit !== Math.max(this.cu.limit(p.built.cuKey), market.cuFloor?.() ?? 0)) return null;
+    return { ...p, bh: { ...p.bh, cached: true } };
   }
 
   private async afterSettled(req: TradeRequest, venue: string, cuKey: CuKey, o: SendOutcome): Promise<void> {
@@ -520,12 +619,12 @@ export class TradeEngine {
     );
   }
 
-  /** Books the wallet's trades of `mint` among its last `limit` transactions; returns how many were new. */
   /** The ledger's token count equals what the wallet holds, so no trade is missing (transfers aside). */
   private ledgerMatchesBalance(mint: string): boolean {
     return (this.ledger.position(mint)?.tokensRaw ?? '0') === this.markets.tokenBalance(mint).toString();
   }
 
+  /** Books the wallet's trades of `mint` among its last `limit` transactions; returns how many were new. */
   private async syncHistory(mint: string, limit: number): Promise<number> {
     const entry = this.markets.get(mint);
     if (!entry) return 0;

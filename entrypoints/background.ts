@@ -402,6 +402,14 @@ async function handleContent(req: ContentRequest, sender: Sender): Promise<unkno
       const fees = quotes.reduce((a, q) => a + q.feesLamports, 0) / LAMPORTS_PER_SOL;
       return { outSol: out, feesSol: fees, netSol: out - fees } satisfies SellQuote;
     }
+    case 'PREBUILD': {
+      const settings = await loadSettings();
+      const profile = activeProfile(settings);
+      const engs = await tradeEngines();
+      // Each wallet builds its own share, exactly as a click would split it.
+      for (const e of engs) e.eng.prebuild(req.trade && perWalletIntent(req.trade, engs.length), settings, profile);
+      return null;
+    }
     case 'QUOTE_BUY': {
       const settings = await loadSettings();
       const profile = activeProfile(settings);

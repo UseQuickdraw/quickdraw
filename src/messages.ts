@@ -3,6 +3,7 @@
 // nothing from a sender is trusted until it has passed through here.
 import { z } from 'zod';
 import { PanelStateSchema, PriorityLevel, SettingsSchema, TierName, type Settings } from './settings/schema';
+import type { MintRisk } from './solana/tokens';
 
 const Base58Address = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'not a base58 address');
 const SiteKey = z.string().min(1).max(253);
@@ -31,6 +32,22 @@ export const ContentRequest = z.discriminatedUnion('type', [
     pct: z.number().finite().positive().max(100),
     tier: TierName,
     presetIndex: z.number().int().min(0).max(15).nullable(),
+  }),
+  /**
+   * The pointer is on a trade button: the worker builds that trade (unsigned) and
+   * keeps it current, so a click only signs and sends. `trade: null` clears it.
+   */
+  z.object({
+    type: z.literal('PREBUILD'),
+    trade: z
+      .object({
+        mint: Base58Address,
+        side: z.enum(['buy', 'sell']),
+        amount: z.number().finite().positive(),
+        tier: TierName,
+        presetIndex: z.number().int().min(0).max(15).nullable(),
+      })
+      .nullable(),
   }),
   /** What a buy button would get right now, for its hover preview. `sol` is the total across the wallets. */
   z.object({
@@ -176,6 +193,8 @@ export interface MarketView {
   symbol?: string | null;
   /** SOL/USD from the Orca SOL/USDC pool, for display. */
   solUsd?: number | null;
+  /** What the coin's creator can do to holders (freeze, take back, hook transfers); absent or [] when nothing. */
+  risks?: MintRisk[];
 }
 
 /** A sell's proceeds across the trading wallets, in SOL. */
