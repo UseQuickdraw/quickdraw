@@ -1,6 +1,6 @@
 import '../src/polyfills';
 import { describe, expect, it, vi } from 'vitest';
-import { ComputeBudgetProgram, Keypair, PublicKey, type AccountInfo, type Connection, type SimulatedTransactionResponse, type VersionedTransaction } from '@solana/web3.js';
+import { ComputeBudgetProgram, Keypair, PublicKey, type AccountInfo, type Connection, type SimulatedTransactionResponse, type VersionedTransaction, type VersionedTransactionResponse } from '@solana/web3.js';
 import BN from 'bn.js';
 import { loadFixture, replay, type Fixture } from './helpers/fixtures';
 import { CuCalibration, DEFAULT_CU, capCuPrice, levelsFromRecent } from '../src/solana/fees';
@@ -165,7 +165,7 @@ describe('simulation results', () => {
 });
 
 describe('TradeEngine (dry run)', () => {
-  function engineFor(fx: Fixture, simulate: (tx: VersionedTransaction) => Partial<SimulatedTransactionResponse>) {
+  function engineFor(fx: Fixture, simulate: (tx: VersionedTransaction) => Partial<SimulatedTransactionResponse>, overrides: Record<string, unknown> = {}) {
     const base = replay(fx) as unknown as Record<string, (...a: never[]) => unknown>;
     const has = (k: PublicKey) => k.toBase58() in fx.accounts;
     const conn = {
@@ -178,6 +178,7 @@ describe('TradeEngine (dry run)', () => {
       removeAccountChangeListener: async () => {},
       getLatestBlockhash: async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 1 }),
       simulateTransaction: vi.fn(async (tx: VersionedTransaction) => ({ context: { slot: 1 }, value: { err: null, logs: [], accounts: null, unitsConsumed: 0, ...simulate(tx) } })),
+      ...overrides,
     } as unknown as Connection;
     const signer = Keypair.generate();
     const endpoints = { rpcUrl: 'https://rpc.example', wsUrl: 'wss://rpc.example', senderApiKey: null, customSendUrl: null };
@@ -235,6 +236,50 @@ describe('TradeEngine (dry run)', () => {
     const tip = Math.round(tipFor('fast', profile, null, settings.safety.maxTipSol) * 1e9);
     expect(half.feesLamports).toBeGreaterThanOrEqual(5_000 + tip);
     engine.dispose();
+  });
+
+  it('books a sell made elsewhere even when the RPC lists it late', async () => {
+    vi.useFakeTimers();
+    try {
+      let looks = 0;
+      let sellTx: VersionedTransactionResponse | null = null;
+      const { engine, signer } = engineFor(pool, () => ({}), {
+        // The sell only shows up in the address's history on the third look.
+        getSignaturesForAddress: async () => (++looks >= 3 && sellTx ? [{ signature: 'outside-sell', err: null }] : []),
+        getTransaction: async () => sellTx,
+      });
+      const view = await engine.markets.watch(pool.address, 1);
+      const mint = view.mint;
+      const ata = engine.markets.get(mint)!.userAta;
+      // Booked earlier: a buy of 1,000 tokens for 0.1 SOL. Then a sell of all of it elsewhere for 0.15 SOL.
+      await engine.ledger.record({ signature: 'our-buy', slot: 1, blockTime: null, mint, side: 'buy', ok: true, tradeLamports: -100_000_000, tokenDelta: '1000', decimals: view.decimals, feeLamports: 5_000, tipLamports: 0, rentLamports: 0, walletLamports: -100_005_000 });
+      sellTx = {
+        slot: 2,
+        blockTime: null,
+        transaction: { signatures: ['outside-sell'], message: { getAccountKeys: () => ({ length: 2, get: (i: number) => [signer.publicKey, ata][i] }) } },
+        meta: {
+          fee: 5_000,
+          err: null,
+          preBalances: [1_000_000_000, 2_039_280],
+          postBalances: [1_000_000_000 + 150_000_000 - 5_000, 2_039_280],
+          preTokenBalances: [{ accountIndex: 1, mint, owner: signer.publicKey.toBase58(), uiTokenAmount: { amount: '1000', decimals: view.decimals, uiAmount: null, uiAmountString: '' } }],
+          postTokenBalances: [{ accountIndex: 1, mint, owner: signer.publicKey.toBase58(), uiTokenAmount: { amount: '0', decimals: view.decimals, uiAmount: null, uiAmountString: '' } }],
+        },
+      } as unknown as VersionedTransactionResponse;
+      // The wallet now holds none, so the ledger (1,000) doesn't match until the sell is found.
+      (engine as unknown as { resync(m: string): void }).resync(mint);
+      await vi.advanceTimersByTimeAsync(1_500 + 4_000 + 10_000);
+      expect(looks).toBe(3);
+      const p = engine.ledger.position(mint)!;
+      expect(p.soldLamports).toBe(150_000_000);
+      expect(p.tokensRaw).toBe('0');
+      // Matched now, so it stops looking.
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(looks).toBe(3);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("quotes a buy's tokens and their value after price impact and fees", async () => {

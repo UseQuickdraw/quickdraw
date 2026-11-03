@@ -103,9 +103,12 @@ export interface EngineEvents {
 const now = () => performance.timeOrigin + performance.now();
 /** How far back a token's history is read when it was bought outside the extension. */
 const BACKFILL_LIMIT = 60;
-/** How far back to look after the token balance changes, and how long to wait first for the RPC to index the trade. */
+/**
+ * How far back to look after the token balance changes, and the waits before
+ * each look: an RPC can take a while to list a new transaction for an address.
+ */
 const RESYNC_LIMIT = 10;
-const RESYNC_DELAY_MS = [1500, 5000];
+const RESYNC_DELAY_MS = [1500, 4000, 10_000, 25_000];
 /** The base fee for a transaction with one signature. */
 const NETWORK_FEE_LAMPORTS = 5_000;
 
@@ -490,7 +493,8 @@ export class TradeEngine {
    * per token per session; trades already in the ledger are skipped by signature.
    */
   async backfill(mint: string): Promise<void> {
-    if (this.backfilled.has(mint)) return;
+    // Already read this session: just look for anything since, in case a change was missed.
+    if (this.backfilled.has(mint)) return this.resync(mint);
     if (this.markets.tokenBalance(mint).isZero() && !this.ledger.position(mint)) return;
     this.backfilled.add(mint);
     await this.syncHistory(mint, BACKFILL_LIMIT);
@@ -498,8 +502,9 @@ export class TradeEngine {
 
   /**
    * The token balance changed while the coin is open, maybe from a trade made
-   * elsewhere: read its latest transactions once the RPC has them. Retried once,
-   * since the balance can change before the history is indexed.
+   * elsewhere: read its latest transactions once the RPC has them. Looks again,
+   * a few times and further apart, until the ledger accounts for the balance,
+   * since the balance can change well before the history is indexed.
    */
   private resync(mint: string, attempt = 0): void {
     const t = this.resyncs.get(mint);
@@ -508,14 +513,19 @@ export class TradeEngine {
       mint,
       setTimeout(() => {
         this.resyncs.delete(mint);
-        void this.syncHistory(mint, RESYNC_LIMIT).then((added) => {
-          if (!added && attempt + 1 < RESYNC_DELAY_MS.length) this.resync(mint, attempt + 1);
+        void this.syncHistory(mint, RESYNC_LIMIT).then(() => {
+          if (!this.ledgerMatchesBalance(mint) && attempt + 1 < RESYNC_DELAY_MS.length) this.resync(mint, attempt + 1);
         });
       }, RESYNC_DELAY_MS[attempt]),
     );
   }
 
   /** Books the wallet's trades of `mint` among its last `limit` transactions; returns how many were new. */
+  /** The ledger's token count equals what the wallet holds, so no trade is missing (transfers aside). */
+  private ledgerMatchesBalance(mint: string): boolean {
+    return (this.ledger.position(mint)?.tokensRaw ?? '0') === this.markets.tokenBalance(mint).toString();
+  }
+
   private async syncHistory(mint: string, limit: number): Promise<number> {
     const entry = this.markets.get(mint);
     if (!entry) return 0;
