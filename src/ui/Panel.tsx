@@ -622,7 +622,7 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
 
   const tierCfg = profile.tiers[tier];
   const holdingSol = market ? market.tokenBalance * market.spotSolPerToken : null;
-  const venueLabel = preview ? 'PREVIEW' : market ? ({ PUMP_CURVE: 'CURVE', PUMP_CURVE_ROUTED: 'CURVE', PUMPSWAP: 'PUMPSWAP', PUMPSWAP_ROUTED: 'PUMPSWAP', LAUNCHLAB: 'LAUNCHLAB', LAUNCHLAB_ROUTED: 'LAUNCHLAB', RAYDIUM_CPMM: 'RAYDIUM', RAYDIUM_CPMM_ROUTED: 'RAYDIUM', CLMM_ROUTED: 'CLMM' } as const)[market.venue] : marketErr ? 'N/A' : address && walletReady ? '…' : '—';
+  const venueLabel = preview ? 'PREVIEW' : market ? ({ PUMP_CURVE: 'CURVE', PUMP_CURVE_ROUTED: 'CURVE', PUMPSWAP: 'PUMPSWAP', PUMPSWAP_ROUTED: 'PUMPSWAP', LAUNCHLAB: 'LAUNCHLAB', LAUNCHLAB_ROUTED: 'LAUNCHLAB', RAYDIUM_CPMM: 'RAYDIUM', RAYDIUM_CPMM_ROUTED: 'RAYDIUM', CLMM_ROUTED: 'CLMM', RAYDIUM_AMM: 'RAYDIUM V4' } as const)[market.venue] : marketErr ? 'N/A' : address && walletReady ? '…' : '—';
   // On-chain symbol when the token has metadata, else the start of the mint.
   const symbol = market?.symbol || (market ? (mint ?? address ?? '').slice(0, 4) : '');
   const ticker = symbol.length > 8 ? `${symbol.slice(0, 7)}...` : symbol;

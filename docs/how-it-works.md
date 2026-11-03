@@ -15,6 +15,7 @@ The panel passes the worker whatever address the page shows. The worker resolves
 | PumpSwap (SOL pools) | `buy` (exact tokens out, cost ≤ SOL + slippage; SOL wrapped and unwrapped in the same tx) | `sell` |
 | Raydium LaunchLab (SOL-paired curves: letsbonk.fun, stonk.fun…) | `buy_exact_in` | `sell_exact_in` |
 | Raydium CPMM (graduated coins, SOL-paired) | `swap_base_input` (exact SOL in, min tokens out) | `swap_base_input` (exact tokens in, min SOL out) |
+| Raydium AMM v4 (coins that graduated before PumpSwap, and older SOL pairs) | `swap_base_in_v2` (exact SOL in, min tokens out) | `swap_base_in_v2` (exact tokens in, min SOL out) |
 | A coin's own Raydium CLMM or Orca Whirlpool pool, against SOL or USDC | Jupiter `route_v2` through that pool | the same route reversed |
 | Any of the above priced in another token | Jupiter `route_v2`: SOL → that token, then that token → the coin | the same route reversed |
 
@@ -47,7 +48,7 @@ Routes through several pools are too big for one transaction without **address l
 Each of these shows a message saying so:
 
 - coins paired with a token that has no PumpSwap pool and no Raydium CLMM or Orca pool against SOL or USDC (Meteora-only tokens, for example);
-- coins that graduated to a Raydium AMM v4 pool;
+- Raydium AMM v4 pools that are paired with another token or still trade through OpenBook;
 - pump.fun cashback curves priced in a token other than SOL;
 - the rarer fixed-price and linear curves;
 - Raydium CLMM trades that would reach resting limit orders, Orca pools with adaptive fees, and quote tokens with a transfer hook.

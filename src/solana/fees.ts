@@ -57,6 +57,12 @@ export const DEFAULT_CU: Record<CuKey, number> = {
   'RAYDIUM_CPMM_ROUTED:buy+ata': 175_000,
   'RAYDIUM_CPMM_ROUTED:sell': 150_000,
   'RAYDIUM_CPMM_ROUTED:sell+close': 155_000,
+  // Raydium AMM v4 swap_base_in_v2, SOL-paired: buy+ata, sell and sell+close all ~34k
+  // (tests/live-ammv4.test.ts, 2026-11-04), plus ~35%.
+  'RAYDIUM_AMM:buy': 46_000,
+  'RAYDIUM_AMM:buy+ata': 46_000,
+  'RAYDIUM_AMM:sell': 46_000,
+  'RAYDIUM_AMM:sell+close': 46_000,
   // A coin's own CLMM or Orca pool through a Jupiter route: one swap, but it pays per tick crossed.
   'CLMM_ROUTED:buy': 150_000,
   'CLMM_ROUTED:buy+ata': 160_000,
