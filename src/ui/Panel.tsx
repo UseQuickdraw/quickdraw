@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { MarketView, PanelEvent, Result, SellQuote, TradeResult, WalletRow, WalletState } from '../messages';
+import type { BuyQuote, MarketView, PanelEvent, Result, SellQuote, TradeResult, WalletRow, WalletState } from '../messages';
 import type { BuyPreset, PanelState, Profile, TierName } from '../settings/schema';
 import { activeProfile } from '../settings/profiles';
 import { STARTER_PROFILES, padBuyPresets, padSellPresets } from '../settings/defaults';
@@ -189,6 +189,19 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
     );
     return () => void (stale = true);
   }, [sellQuoteKey, market?.spotSolPerToken, market?.tokenBalance]);
+  // The same for a hovered buy button: what its SOL gets, after fees and price impact.
+  const [buyHover, setBuyHover] = useState<{ sol: number; tier: TierName; presetIndex: number } | null>(null);
+  const [buyQuote, setBuyQuote] = useState<{ key: string; quote: BuyQuote } | null>(null);
+  const buyQuoteKey = buyHover && market && !state?.preview ? `${market.mint}:${buyHover.sol}:${buyHover.tier}:${buyHover.presetIndex}` : null;
+  useEffect(() => {
+    if (!buyQuoteKey || !buyHover || !market) return;
+    let stale = false;
+    void send({ type: 'QUOTE_BUY', mint: market.mint, sol: buyHover.sol, tier: buyHover.tier, presetIndex: buyHover.presetIndex }).then((res) => {
+      const r = res as Result<BuyQuote | null>;
+      if (!stale) setBuyQuote(r.ok && r.data ? { key: buyQuoteKey, quote: r.data } : null);
+    });
+    return () => void (stale = true);
+  }, [buyQuoteKey, market?.spotSolPerToken]);
   // A click before the coin has loaded waits for it here instead of the buttons looking dead.
   const marketNow = useRef<{ market: MarketView | null; err: string | null }>({ market: null, err: null });
   marketNow.current = { market, err: marketErr };
@@ -779,6 +792,7 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
   const showSwitch = s.ui.show.currencySwitch !== false;
   // Hovering a sell button previews its share of the holding in the header (not while editing presets).
   const sellPreview = draft || !market?.tokenBalance ? null : (sellHover?.pct ?? null);
+  const buyPreview = !draft && buyHover && buyQuote?.key === buyQuoteKey ? buyQuote.quote : null;
   const share = sellPreview === null ? 1 : Math.min(100, Math.max(0, sellPreview)) / 100;
   // The hovered sell's real proceeds once quoted; until then (and in preview) the spot value of its share.
   const previewQuote = sellPreview !== null && sellQuote?.key === sellQuoteKey ? sellQuote.quote : null;
@@ -891,9 +905,26 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
               )}
             </span>
             <span class="it-right">
-              <span title={`Wallet SOL balance · ${venueLabel}`}>
-                <Icon.sol /> {solBalance != null ? fmtSol(solBalance) : '0'}
-              </span>
+              {buyPreview ? (
+                <span
+                  class="it-right it-previewing"
+                  title={`What ${fmtSol(buyHover!.sol)} SOL buys: about ${fmtCompact(buyPreview.tokens)} ${ticker}, worth ${fmtSol(buyPreview.valueSol)} SOL at the current price (after the pool's fee and price impact), less ${fmtSol(buyPreview.feesSol)} SOL in network fee, priority fee and tip`}
+                >
+                  <span class="it-hold">
+                    {fmtCompact(buyPreview.tokens)} {ticker}
+                  </span>
+                  <span class="it-muted">•</span>
+                  <span>{usd(Math.max(0, buyPreview.netSol))}</span>
+                  <span class="it-muted">•</span>
+                  <span>
+                    <Icon.sol /> {fmtSol(Math.max(0, buyPreview.netSol))}
+                  </span>
+                </span>
+              ) : (
+                <span title={`Wallet SOL balance · ${venueLabel}`}>
+                  <Icon.sol /> {solBalance != null ? fmtSol(solBalance) : '0'}
+                </span>
+              )}
               <button class="it-mini" title={pos.compact ? 'Full size' : 'Compact'} onClick={() => persist({ ...pos, compact: !pos.compact })}>
                 <Icon.expand />
               </button>
@@ -910,6 +941,8 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
                       key={i}
                       disabled={!ready}
                       onClick={() => void trade('buy', p.sol, t, i)}
+                      onPointerEnter={() => setBuyHover({ sol: p.sol, tier: t, presetIndex: i })}
+                      onPointerLeave={() => setBuyHover(null)}
                     >
                       {fmtSol(p.sol)}
                     </button>

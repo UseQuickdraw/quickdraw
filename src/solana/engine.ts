@@ -199,17 +199,49 @@ export class TradeEngine {
     if (!live || balance.isZero() || !live.market.tradable()) return null;
     const plan = planTrade(live.market, { side: 'sell', amount: req.pct, presetIndex: req.presetIndex }, settings, profile, balance);
     const preset = req.presetIndex === null ? null : profile.sellPresets[req.presetIndex];
-    const tierCfg = profile.tiers[req.tier];
     const close = plan.quote.inAmount.eq(balance) && settings.safety.autoCloseAta && live.market.canCloseTokenAccount?.() !== false;
-    const cuLimit = Math.max(this.cu.limit(cuKey(live.market.venue, 'sell', close)), live.market.cuFloor?.() ?? 0);
+    const feesLamports = this.feesFor(live.market, cuKey(live.market.venue, 'sell', close), req.tier, preset ?? null, settings, profile);
+    return { outLamports: Number(plan.quote.out.toString()), feesLamports };
+  }
+
+  /**
+   * What buying for `sol` would get right now: the tokens the venue's own quote
+   * gives (after its fee and price impact), their value at the current price,
+   * and the network fee, priority fee and tip the trade would pay on top.
+   */
+  quoteBuy(
+    req: { mint: string; sol: number; tier: TierName; presetIndex: number | null },
+    settings: Settings,
+    profile: Profile,
+  ): { tokens: number; valueLamports: number; feesLamports: number } | null {
+    const live = this.markets.get(req.mint);
+    if (!live || !live.market.tradable()) return null;
+    const plan = planTrade(live.market, { side: 'buy', amount: req.sol, presetIndex: req.presetIndex }, settings, profile, this.markets.tokenBalance(req.mint));
+    const preset = req.presetIndex === null ? null : profile.buyPresets[req.presetIndex];
+    const feesLamports = this.feesFor(live.market, cuKey(live.market.venue, 'buy', live.userAtaInfo === null), req.tier, preset ?? null, settings, profile);
+    const tokensRaw = Number(plan.quote.out.toString());
+    const valueLamports = Math.round((tokensRaw * live.market.spotLamportsPerToken()) / 10 ** live.market.mint.decimals);
+    return { tokens: tokensRaw / 10 ** live.market.mint.decimals, valueLamports, feesLamports };
+  }
+
+  /** Network fee, priority fee and tip for one trade, as it would be built now. */
+  private feesFor(
+    market: Market,
+    key: CuKey,
+    tier: TierName,
+    preset: { tipSol: number | null; cuPriceMicroLamports: number | null } | null,
+    settings: Settings,
+    profile: Profile,
+  ): number {
+    const tierCfg = profile.tiers[tier];
+    const cuLimit = Math.max(this.cu.limit(key), market.cuFloor?.() ?? 0);
     const cuPrice = capCuPrice(
       preset?.cuPriceMicroLamports ?? tierCfg.cuPriceMicroLamports ?? this.fees.get(tierCfg.priorityLevel),
       cuLimit,
       Math.floor(settings.safety.maxPriorityFeeSol * LAMPORTS_PER_SOL),
     );
-    const tipSol = settings.sendMode === 'sender' ? tipFor(req.tier, profile, preset?.tipSol ?? null, settings.safety.maxTipSol) : 0;
-    const feesLamports = NETWORK_FEE_LAMPORTS + Math.ceil((cuPrice * cuLimit) / 1e6) + Math.round(tipSol * LAMPORTS_PER_SOL);
-    return { outLamports: Number(plan.quote.out.toString()), feesLamports };
+    const tipSol = settings.sendMode === 'sender' ? tipFor(tier, profile, preset?.tipSol ?? null, settings.safety.maxTipSol) : 0;
+    return NETWORK_FEE_LAMPORTS + Math.ceil((cuPrice * cuLimit) / 1e6) + Math.round(tipSol * LAMPORTS_PER_SOL);
   }
 
   /** Starts background refreshes. Errors are swallowed: the click path refetches if a cache is cold. */

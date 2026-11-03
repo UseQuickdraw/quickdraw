@@ -236,4 +236,22 @@ describe('TradeEngine (dry run)', () => {
     expect(half.feesLamports).toBeGreaterThanOrEqual(5_000 + tip);
     engine.dispose();
   });
+
+  it("quotes a buy's tokens and their value after price impact and fees", async () => {
+    const { engine } = engineFor(pool, () => ({}));
+    const settings = defaultSettings();
+    const profile = activeProfile(settings);
+    const view = await engine.markets.watch(pool.address, 1);
+    const market = engine.markets.get(view.mint)!.market;
+    const small = engine.quoteBuy({ mint: view.mint, sol: 0.01, tier: 'eco', presetIndex: null }, settings, profile)!;
+    const big = engine.quoteBuy({ mint: view.mint, sol: 50, tier: 'eco', presetIndex: null }, settings, profile)!;
+    // Exactly the venue's own quote.
+    expect(small.tokens).toBe(Number(market.quoteBuy(new BN(10_000_000), profile.slippagePct).out.toString()) / 10 ** view.decimals);
+    // Worth less than what went in (pool fee), and a big buy loses more of it to price impact.
+    expect(small.valueLamports).toBeLessThan(10_000_000);
+    expect(big.valueLamports / 50e9).toBeLessThan(small.valueLamports / 10_000_000);
+    // Network fee + priority fee + the eco tip.
+    expect(small.feesLamports).toBeGreaterThanOrEqual(5_000 + Math.round(tipFor('eco', profile, null, settings.safety.maxTipSol) * 1e9));
+    engine.dispose();
+  });
 });

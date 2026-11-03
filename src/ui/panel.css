@@ -211,6 +211,8 @@ select:focus { border-color: var(--accent); }
 .it-head .it-right { min-width: 0; white-space: nowrap; }
 .it-head .it-right > span { flex: none; }
 .it-head .it-right > .it-hold { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The buy preview sits inside the buy header's right side, beside the size button. */
+.it-head .it-right > .it-right { flex: 0 1 auto; min-width: 0; }
 .it-mini { display: inline-flex; background: none; border: none; padding: 0 0 0 2px; color: var(--muted); }
 .it-mini:hover { color: var(--fg); }
 

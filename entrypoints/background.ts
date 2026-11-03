@@ -14,6 +14,7 @@ import {
   type PanelEvent,
   type Result,
   type SellQuote,
+  type BuyQuote,
   type TradeResult,
   type WalletRow,
   type WalletState,
@@ -400,6 +401,18 @@ async function handleContent(req: ContentRequest, sender: Sender): Promise<unkno
       const out = quotes.reduce((a, q) => a + q.outLamports, 0) / LAMPORTS_PER_SOL;
       const fees = quotes.reduce((a, q) => a + q.feesLamports, 0) / LAMPORTS_PER_SOL;
       return { outSol: out, feesSol: fees, netSol: out - fees } satisfies SellQuote;
+    }
+    case 'QUOTE_BUY': {
+      const settings = await loadSettings();
+      const profile = activeProfile(settings);
+      const engs = await tradeEngines();
+      // The amount is the total, split between the wallets as a click would.
+      const share = perWalletIntent({ side: 'buy' as const, amount: req.sol, presetIndex: req.presetIndex }, engs.length).amount;
+      const quotes = engs.map((e) => e.eng.quoteBuy({ ...req, sol: share }, settings, profile)).filter((q) => q !== null);
+      if (!quotes.length) return null;
+      const value = quotes.reduce((a, q) => a + q.valueLamports, 0) / LAMPORTS_PER_SOL;
+      const fees = quotes.reduce((a, q) => a + q.feesLamports, 0) / LAMPORTS_PER_SOL;
+      return { tokens: quotes.reduce((a, q) => a + q.tokens, 0), valueSol: value, feesSol: fees, netSol: value - fees } satisfies BuyQuote;
     }
   }
 }

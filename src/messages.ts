@@ -32,6 +32,14 @@ export const ContentRequest = z.discriminatedUnion('type', [
     tier: TierName,
     presetIndex: z.number().int().min(0).max(15).nullable(),
   }),
+  /** What a buy button would get right now, for its hover preview. `sol` is the total across the wallets. */
+  z.object({
+    type: z.literal('QUOTE_BUY'),
+    mint: Base58Address,
+    sol: z.number().finite().positive(),
+    tier: TierName,
+    presetIndex: z.number().int().min(0).max(15).nullable(),
+  }),
   z.object({ type: z.literal('OPEN_OPTIONS'), section: z.enum(['wallet', 'endpoints', 'fees', 'settings', 'display', 'ledger']).optional() }),
   /**
    * The panel's P1/P2/P3 tabs: activate the profile in that slot, creating the
@@ -177,6 +185,18 @@ export interface SellQuote {
   /** Network fee, priority fee and landing tip. */
   feesSol: number;
   /** outSol − feesSol: what the wallets end up with. */
+  netSol: number;
+}
+
+/** A buy's result across the trading wallets. */
+export interface BuyQuote {
+  /** Tokens received, after the pool's fee and price impact. */
+  tokens: number;
+  /** Their value at the current price, in SOL. */
+  valueSol: number;
+  /** Network fee, priority fee and landing tip, paid on top. */
+  feesSol: number;
+  /** valueSol − feesSol: what the SOL spent is worth once bought. */
   netSol: number;
 }
 
