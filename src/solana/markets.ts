@@ -58,6 +58,8 @@ export class MarketManager {
     private readonly onUpdate: MarketListener,
     private readonly ledger?: LedgerReader,
     private readonly extras?: (m: Market) => Partial<MarketView>,
+    /** The wallet's balance of a watched token changed: a trade here, or one made elsewhere. */
+    private readonly onTokenChange?: (mint: string) => void,
   ) {}
 
   /** Push fresh views of every watched mint (e.g. after a settings change). */
@@ -196,8 +198,10 @@ export class MarketManager {
       this.conn.onAccountChange(
         e.userAta,
         (info) => {
+          const before = tokenAmount(e.userAtaInfo);
           e.userAtaInfo = info.data.length ? info : null;
           this.push(e, true);
+          if (!tokenAmount(e.userAtaInfo).eq(before)) this.onTokenChange?.(e.market.mint.mint.toBase58());
         },
         { commitment: LIVE_COMMITMENT },
       ),

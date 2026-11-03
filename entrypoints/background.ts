@@ -378,8 +378,8 @@ async function handleContent(req: ContentRequest, sender: Sender): Promise<unkno
       const engs = await tradeEngines();
       const watched = await Promise.all(engs.map(async (e) => ({ pubkey: e.pubkey, view: await e.eng.markets.watch(req.address, tabId) })));
       watched.forEach((w) => rememberView(w.pubkey, w.view));
-      // A token held but bought elsewhere: read its history in the background.
-      for (const [i, w] of watched.entries()) if (w.view.tokenBalance > 0) void engs[i]!.eng.backfill(w.view.mint);
+      // A token held or traded before: read its history (trades made elsewhere too) in the background.
+      for (const [i, w] of watched.entries()) void engs[i]!.eng.backfill(w.view.mint);
       return (mergedView(watched[0]!.view.mint) ?? watched[0]!.view) satisfies MarketView;
     }
     case 'TRADE': {

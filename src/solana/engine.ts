@@ -103,6 +103,9 @@ export interface EngineEvents {
 const now = () => performance.timeOrigin + performance.now();
 /** How far back a token's history is read when it was bought outside the extension. */
 const BACKFILL_LIMIT = 60;
+/** How far back to look after the token balance changes, and how long to wait first for the RPC to index the trade. */
+const RESYNC_LIMIT = 10;
+const RESYNC_DELAY_MS = [1500, 5000];
 
 /** "Sold 1.16K → 0.002 SOL", or null when the trade moved neither (a fee-only transaction). */
 function describeFill(f: Fill): string | null {
@@ -129,6 +132,7 @@ export function sendUrlFor(settings: Settings, profile: Profile, tier: TierName,
 export class TradeEngine {
   readonly markets: MarketManager;
   private readonly backfilled = new Set<string>();
+  private readonly resyncs = new Map<string, ReturnType<typeof setTimeout>>();
   readonly blockhash: BlockhashCache;
   readonly fees: PriorityFees;
   cu = new CuCalibration();
@@ -149,7 +153,14 @@ export class TradeEngine {
     private readonly storage?: EngineStorage,
   ) {
     this.ledger = new LedgerStore(storage?.ledger);
-    this.markets = new MarketManager(conn, signer.publicKey, events.market, this.ledger, (m) => this.priorityEstimate(m));
+    this.markets = new MarketManager(
+      conn,
+      signer.publicKey,
+      events.market,
+      this.ledger,
+      (m) => this.priorityEstimate(m),
+      (mint) => this.resync(mint),
+    );
     this.blockhash = new BlockhashCache(conn);
     this.fees = new PriorityFees(conn, [PUMP_PROGRAM_ID, PUMP_AMM_PROGRAM_ID]);
     this.own = new PersonalTables(conn, signer, endpoints.rpcUrl, storage?.ownTables);
@@ -415,17 +426,42 @@ export class TradeEngine {
   }
 
   /**
-   * Fills in this wallet's history for a token it already holds: buys and sells
-   * made anywhere (Axiom, other bots), read from the chain, so P&L and Sell
-   * Init. know what went in. Once per token per session; trades already in the
-   * ledger are skipped by signature.
+   * Fills in this wallet's history for a token it holds or has traded here:
+   * buys and sells made anywhere (Axiom, its TP/SL orders, other bots), read
+   * from the chain, so P&L and Sell Init. know what went in and came out. Once
+   * per token per session; trades already in the ledger are skipped by signature.
    */
   async backfill(mint: string): Promise<void> {
     if (this.backfilled.has(mint)) return;
+    if (this.markets.tokenBalance(mint).isZero() && !this.ledger.position(mint)) return;
     this.backfilled.add(mint);
+    await this.syncHistory(mint, BACKFILL_LIMIT);
+  }
+
+  /**
+   * The token balance changed while the coin is open, maybe from a trade made
+   * elsewhere: read its latest transactions once the RPC has them. Retried once,
+   * since the balance can change before the history is indexed.
+   */
+  private resync(mint: string, attempt = 0): void {
+    const t = this.resyncs.get(mint);
+    if (t) clearTimeout(t);
+    this.resyncs.set(
+      mint,
+      setTimeout(() => {
+        this.resyncs.delete(mint);
+        void this.syncHistory(mint, RESYNC_LIMIT).then((added) => {
+          if (!added && attempt + 1 < RESYNC_DELAY_MS.length) this.resync(mint, attempt + 1);
+        });
+      }, RESYNC_DELAY_MS[attempt]),
+    );
+  }
+
+  /** Books the wallet's trades of `mint` among its last `limit` transactions; returns how many were new. */
+  private async syncHistory(mint: string, limit: number): Promise<number> {
     const entry = this.markets.get(mint);
-    if (!entry) return;
-    const sigs = await this.conn.getSignaturesForAddress(entry.userAta, { limit: BACKFILL_LIMIT }, 'confirmed').catch(() => []);
+    if (!entry) return 0;
+    const sigs = await this.conn.getSignaturesForAddress(entry.userAta, { limit }, 'confirmed').catch(() => []);
     const known = new Set(this.ledger.position(mint)?.fills.map((f) => f.signature) ?? []);
     let added = 0;
     // Oldest first, so positions build up in order.
@@ -437,6 +473,7 @@ export class TradeEngine {
         const fill = parseFill(tx, this.signer.publicKey, new PublicKey(mint), SENDER.tipAccounts);
         // Only trades: a transfer in or out moves tokens without SOL.
         if (fill.side === 'none' || fill.tradeLamports === 0 || (fill.side === 'buy') !== fill.tradeLamports < 0) continue;
+        if (this.ledger.position(mint)?.fills.some((f) => f.signature === fill.signature)) continue; // booked meanwhile
         await this.ledger.record(fill);
         added++;
       } catch {
@@ -444,6 +481,7 @@ export class TradeEngine {
       }
     }
     if (added) this.markets.refresh(mint);
+    return added;
   }
 
   private async recordFill(tx: VersionedTransactionResponse, mint: string): Promise<Fill | null> {
