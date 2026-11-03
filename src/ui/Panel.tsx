@@ -698,8 +698,14 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
     if (r.ok) setWalletRows(r.data);
     else pushToast({ id: `w-${Date.now()}`, level: 'error', text: r.error });
   }
+  // A side menu beside the panel, the panel's height: on its right, or its left when the window ends too soon.
+  const pickerOnLeft = pos.x + (panelRef.current?.offsetWidth ?? 330) * s.ui.scale + 340 * s.ui.scale > window.innerWidth;
   const walletPicker = walletRows && (
-    <div class="it-wallets" onKeyDown={(e) => e.key === 'Escape' && setWalletRows(null)}>
+    <div
+      class={`it-wallets${pickerOnLeft ? ' it-wallets-left' : ''}`}
+      style={{ height: `${panelRef.current?.offsetHeight ?? 360}px` }}
+      onKeyDown={(e) => e.key === 'Escape' && setWalletRows(null)}
+    >
       <div class="it-wallets-bar">
         <button onClick={() => void selectWallets(walletRows.map((w) => w.pubkey))}>Select All</button>
         <button onClick={() => void selectWallets(walletRows.filter((w) => (w.sol ?? 0) > 0).map((w) => w.pubkey))}>Select All With Balance</button>
@@ -853,7 +859,6 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
             <Icon.close />
           </button>
         </header>
-        {walletPicker}
         {feeEditor}
         {marketErr && <div class="it-err">{marketErr}</div>}
         {state.needsPassword && address && <div class="it-err">Enter your old password once in the extension to finish converting the wallet.</div>}
@@ -1021,6 +1026,7 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
         {!pos.compact && resizeHandle('s')}
         {!pos.compact && resizeHandle('se')}
       </div>
+      {walletPicker}
 
       {toastsAt === 'panel' && toastList}
     </div>
