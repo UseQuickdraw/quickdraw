@@ -13,6 +13,7 @@ import {
   type MarketView,
   type PanelEvent,
   type Result,
+  type SellQuote,
   type TradeResult,
   type WalletRow,
   type WalletState,
@@ -22,7 +23,7 @@ import { activeProfile, newProfileId, setActiveProfile, upsertProfile } from '..
 import { STARTER_PROFILES, padBuyPresets, padSellPresets } from '../src/settings/defaults';
 import type { Profile, Settings } from '../src/settings/schema';
 import { pingSender } from '../src/solana/sender';
-import { SWEEP_CONFIRM_PHRASE } from '../src/constants';
+import { LAMPORTS_PER_SOL, SWEEP_CONFIRM_PHRASE } from '../src/constants';
 import { connectionFor, dropConnection } from '../src/solana/connection';
 import { TradeEngine, type TradeLogEntry } from '../src/solana/engine';
 import { perWalletIntent } from '../src/solana/trade';
@@ -389,6 +390,16 @@ async function handleContent(req: ContentRequest, sender: Sender): Promise<unkno
       const engs = await tradeEngines();
       if (engs.length === 1) return (await engs[0]!.eng.trade({ ...req, tabId }, settings, profile)) satisfies TradeResult;
       return tradeAll(engs, { ...req, tabId }, settings, profile);
+    }
+    case 'QUOTE_SELL': {
+      const settings = await loadSettings();
+      const profile = activeProfile(settings);
+      // Each selected wallet sells the same % of its own holding: add them up.
+      const quotes = (await tradeEngines()).map((e) => e.eng.quoteSell(req, settings, profile)).filter((q) => q !== null);
+      if (!quotes.length) return null;
+      const out = quotes.reduce((a, q) => a + q.outLamports, 0) / LAMPORTS_PER_SOL;
+      const fees = quotes.reduce((a, q) => a + q.feesLamports, 0) / LAMPORTS_PER_SOL;
+      return { outSol: out, feesSol: fees, netSol: out - fees } satisfies SellQuote;
     }
   }
 }

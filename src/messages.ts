@@ -24,6 +24,14 @@ export const ContentRequest = z.discriminatedUnion('type', [
     /** performance.now()-style click timestamp for the latency harness. */
     clickedAt: z.number().finite(),
   }),
+  /** What a sell button would bring in right now, for its hover preview. Nothing is built or signed. */
+  z.object({
+    type: z.literal('QUOTE_SELL'),
+    mint: Base58Address,
+    pct: z.number().finite().positive().max(100),
+    tier: TierName,
+    presetIndex: z.number().int().min(0).max(15).nullable(),
+  }),
   z.object({ type: z.literal('OPEN_OPTIONS'), section: z.enum(['wallet', 'endpoints', 'fees', 'settings', 'display', 'ledger']).optional() }),
   /**
    * The panel's P1/P2/P3 tabs: activate the profile in that slot, creating the
@@ -160,6 +168,16 @@ export interface MarketView {
   symbol?: string | null;
   /** SOL/USD from the Orca SOL/USDC pool, for display. */
   solUsd?: number | null;
+}
+
+/** A sell's proceeds across the trading wallets, in SOL. */
+export interface SellQuote {
+  /** What the pool pays out, after its fee, price impact and any transfer tax. */
+  outSol: number;
+  /** Network fee, priority fee and landing tip. */
+  feesSol: number;
+  /** outSol − feesSol: what the wallets end up with. */
+  netSol: number;
 }
 
 export type TradeResult =

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { MarketView, PanelEvent, Result, TradeResult, WalletRow, WalletState } from '../messages';
+import type { MarketView, PanelEvent, Result, SellQuote, TradeResult, WalletRow, WalletState } from '../messages';
 import type { BuyPreset, PanelState, Profile, TierName } from '../settings/schema';
 import { activeProfile } from '../settings/profiles';
 import { STARTER_PROFILES, padBuyPresets, padSellPresets } from '../settings/defaults';
@@ -171,10 +171,24 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
   const [bgImage, setBgImage] = useState<string | null>(null);
   useEffect(() => watchPanelImage(setBgImage), []);
   const [busy, setBusy] = useState(false);
-  // The % of the holding a hovered sell button would sell, shown in the sell header.
-  const [sellHover, setSellHover] = useState<number | null>(null);
+  // The hovered sell button: the % of the holding it would sell, shown in the sell header.
+  const [sellHover, setSellHover] = useState<{ pct: number; tier: TierName; presetIndex: number | null } | null>(null);
   const [market, setMarket] = useState<MarketView | null>(null);
   const [marketErr, setMarketErr] = useState<string | null>(null);
+  // What the hovered sell would really bring in (price impact and fees included), re-quoted as the market moves.
+  const [sellQuote, setSellQuote] = useState<{ key: string; quote: SellQuote } | null>(null);
+  const sellQuoteKey = sellHover && market && !state?.preview ? `${market.mint}:${sellHover.pct}:${sellHover.tier}:${sellHover.presetIndex}` : null;
+  useEffect(() => {
+    if (!sellQuoteKey || !sellHover || !market || sellHover.pct <= 0) return;
+    let stale = false;
+    void send({ type: 'QUOTE_SELL', mint: market.mint, pct: Math.min(100, sellHover.pct), tier: sellHover.tier, presetIndex: sellHover.presetIndex }).then(
+      (res) => {
+        const r = res as Result<SellQuote | null>;
+        if (!stale) setSellQuote(r.ok && r.data ? { key: sellQuoteKey, quote: r.data } : null);
+      },
+    );
+    return () => void (stale = true);
+  }, [sellQuoteKey, market?.spotSolPerToken, market?.tokenBalance]);
   // A click before the coin has loaded waits for it here instead of the buttons looking dead.
   const marketNow = useRef<{ market: MarketView | null; err: string | null }>({ market: null, err: null });
   marketNow.current = { market, err: marketErr };
@@ -764,10 +778,13 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
   const sellPresets = padSellPresets(profile.sellPresets, sellCount - solCount);
   const showSwitch = s.ui.show.currencySwitch !== false;
   // Hovering a sell button previews its share of the holding in the header (not while editing presets).
-  const sellPreview = draft || !market?.tokenBalance ? null : sellHover;
+  const sellPreview = draft || !market?.tokenBalance ? null : (sellHover?.pct ?? null);
   const share = sellPreview === null ? 1 : Math.min(100, Math.max(0, sellPreview)) / 100;
-  const hoverSell = (pct: number | null) => ({
-    onPointerEnter: () => setSellHover(pct),
+  // The hovered sell's real proceeds once quoted; until then (and in preview) the spot value of its share.
+  const previewQuote = sellPreview !== null && sellQuote?.key === sellQuoteKey ? sellQuote.quote : null;
+  const headerSol = previewQuote ? Math.max(0, previewQuote.netSol) : holdingSol === null ? null : holdingSol * share;
+  const hoverSell = (pct: number | null, t: TierName = tier, presetIndex: number | null = null) => ({
+    onPointerEnter: () => setSellHover(pct === null ? null : { pct, tier: t, presetIndex }),
     onPointerLeave: () => setSellHover(null),
   });
 
@@ -927,16 +944,23 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
             {s.ui.show.tokenAmounts !== false && (
             <span
               class={`it-right${sellPreview !== null ? ' it-previewing' : ''}`}
-              title={sellPreview !== null ? `What this button sells: ${fmtPct(sellPreview)} of your ${ticker}` : `Your holdings of ${market?.symbol ?? mint ?? 'this token'}`}
+              title={
+                sellPreview === null
+                  ? `Your holdings of ${market?.symbol ?? mint ?? 'this token'}`
+                  : previewQuote
+                    ? `What this button sells: ${fmtPct(sellPreview)} of your ${ticker}
+You get about ${fmtSol(Math.max(0, previewQuote.netSol))} SOL: ${fmtSol(previewQuote.outSol)} SOL from the pool (after its fee and price impact) less ${fmtSol(previewQuote.feesSol)} SOL in network fee, priority fee and tip`
+                    : `What this button sells: ${fmtPct(sellPreview)} of your ${ticker}`
+              }
             >
               <span class="it-hold">
                 {market ? fmtCompact(market.tokenBalance * share) : '0'} {ticker}
               </span>
               <span class="it-muted">•</span>
-              <span>{usd(holdingSol === null ? null : holdingSol * share)}</span>
+              <span>{usd(headerSol)}</span>
               <span class="it-muted">•</span>
               <span>
-                <Icon.sol /> {holdingSol !== null ? fmtSol(holdingSol * share) : '0'}
+                <Icon.sol /> {headerSol !== null ? fmtSol(headerSol) : '0'}
               </span>
             </span>
             )}
@@ -965,7 +989,7 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
                   ) : draft ? (
                     presetInput('sell', i)
                   ) : (
-                    <button key={`p${i}`} disabled={!ready} onClick={() => void trade('sell', p!.pct, p!.tier ?? tier, i)} {...hoverSell(p!.pct)}>
+                    <button key={`p${i}`} disabled={!ready} onClick={() => void trade('sell', p!.pct, p!.tier ?? tier, i)} {...hoverSell(p!.pct, p!.tier ?? tier, i)}>
                       {p!.pct}%
                     </button>
                   ),

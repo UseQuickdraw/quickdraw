@@ -23,11 +23,18 @@ describe('CU calibration', () => {
   it('uses defaults, then the largest recent consumption plus headroom', () => {
     const c = new CuCalibration();
     expect(c.limit('PUMPSWAP:buy')).toBe(DEFAULT_CU['PUMPSWAP:buy']);
-    c.record('PUMPSWAP:buy', 90_000);
-    c.record('PUMPSWAP:buy', 100_000);
-    expect(c.limit('PUMPSWAP:buy')).toBe(115_000);
-    c.bump('PUMPSWAP:buy', 115_000);
-    expect(c.limit('PUMPSWAP:buy')).toBeGreaterThan(115_000);
+    c.record('PUMPSWAP:buy', 150_000);
+    c.record('PUMPSWAP:buy', 170_000);
+    expect(c.limit('PUMPSWAP:buy')).toBe(195_500);
+    c.bump('PUMPSWAP:buy', 195_500);
+    expect(c.limit('PUMPSWAP:buy')).toBeGreaterThan(195_500);
+  });
+
+  it('never sizes a limit below its default', () => {
+    // A run of cheap PumpSwap sells (~91k) must leave room for a costlier one (116k).
+    const c = new CuCalibration({ 'PUMPSWAP:sell': [91_000, 92_000, 91_500] });
+    expect(c.limit('PUMPSWAP:sell')).toBe(DEFAULT_CU['PUMPSWAP:sell']);
+    expect(c.limit('PUMPSWAP:sell')).toBeGreaterThan(116_000);
   });
 
   it('never sizes a routed trade below its default, and keeps more headroom there', () => {
@@ -41,8 +48,8 @@ describe('CU calibration', () => {
   });
 
   it('ignores junk when loading a saved snapshot', () => {
-    const c = new CuCalibration({ 'PUMP_CURVE:sell': [50_000, -1, 'x'], 'EVIL:key': [1] });
-    expect(c.limit('PUMP_CURVE:sell')).toBe(57_500);
+    const c = new CuCalibration({ 'PUMP_CURVE:sell': [80_000, -1, 'x'], 'EVIL:key': [1] });
+    expect(c.limit('PUMP_CURVE:sell')).toBe(92_000);
     expect(Object.keys(c.snapshot())).toEqual(['PUMP_CURVE:sell']);
   });
 
@@ -191,8 +198,8 @@ describe('TradeEngine (dry run)', () => {
     expect(tx.message.recentBlockhash).toBe(BLOCKHASH);
     const key = await crypto.subtle.importKey('raw', new Uint8Array(signer.publicKey.toBytes()), { name: 'Ed25519' }, false, ['verify']);
     expect(await crypto.subtle.verify('Ed25519', key, new Uint8Array(tx.signatures[0]!), new Uint8Array(tx.message.serialize()))).toBe(true);
-    // The measured consumption now sizes the next limit.
-    expect(engine.cu.limit('PUMPSWAP:buy+ata')).toBe(Math.ceil(101_234 * 1.15));
+    // The measured consumption is remembered for sizing the next limit.
+    expect(engine.cu.snapshot()['PUMPSWAP:buy+ata']).toEqual([101_234]);
     engine.dispose();
   });
 
@@ -207,4 +214,26 @@ describe('TradeEngine (dry run)', () => {
     engine.dispose();
   });
 
+  it("quotes a sell's proceeds after price impact and the fees it would pay", async () => {
+    const { engine } = engineFor(pool, () => ({}));
+    const settings = defaultSettings();
+    const profile = activeProfile(settings);
+    const view = await engine.markets.watch(pool.address, 1);
+    expect(engine.quoteSell({ mint: view.mint, pct: 50, tier: 'fast', presetIndex: null }, settings, profile)).toBeNull(); // holds none
+
+    const held = new BN('500000000000000'); // a big holding, so price impact shows
+    vi.spyOn(engine.markets, 'tokenBalance').mockReturnValue(held);
+    const market = engine.markets.get(view.mint)!.market;
+    const half = engine.quoteSell({ mint: view.mint, pct: 50, tier: 'fast', presetIndex: null }, settings, profile)!;
+    const all = engine.quoteSell({ mint: view.mint, pct: 100, tier: 'fast', presetIndex: null }, settings, profile)!;
+    // Exactly the venue's own quote, which is under the spot value.
+    expect(half.outLamports).toBe(Number(market.quoteSell(held.divn(2), profile.slippagePct).out.toString()));
+    expect(half.outLamports).toBeLessThan(view.spotSolPerToken * (Number(held.toString()) / 10 ** view.decimals / 2) * 1e9);
+    // Selling it all moves the price further than half does.
+    expect(all.outLamports).toBeLessThan(2 * half.outLamports);
+    // Network fee + priority fee + the fast tip.
+    const tip = Math.round(tipFor('fast', profile, null, settings.safety.maxTipSol) * 1e9);
+    expect(half.feesLamports).toBeGreaterThanOrEqual(5_000 + tip);
+    engine.dispose();
+  });
 });

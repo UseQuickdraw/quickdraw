@@ -181,7 +181,7 @@ describe('TradeEngine live sending', () => {
     await vi.waitFor(() => expect(log).toHaveLength(1));
     expect(log[0]).toMatchObject({ status: 'confirmed', slot: 555, side: 'buy', tier: 'eco', venue: 'PUMPSWAP' });
     expect(log[0]!.clickToSentMs).not.toBeNull();
-    await vi.waitFor(() => expect(engine.cu.limit('PUMPSWAP:buy+ata')).toBe(Math.ceil(88_000 * 1.15)));
+    await vi.waitFor(() => expect(engine.cu.snapshot()['PUMPSWAP:buy+ata']).toEqual([88_000]));
     engine.dispose();
   });
 

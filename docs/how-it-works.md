@@ -61,7 +61,7 @@ Each of these shows a message saying so:
 - **Warm connection:** while live, the worker pings Sender after 5 s without a send, so the next click doesn't pay a TLS handshake.
 - **Rate limits:** every RPC call and send is retried on HTTP 429, at once and then with short pauses, for up to 30 s (20 s for sends).
 
-Compute-unit limits start from mainnet measurements (`DEFAULT_CU` in `src/solana/fees.ts`), then follow your own trades (the largest recent use, plus headroom).
+Compute-unit limits start from mainnet measurements (`DEFAULT_CU` in `src/solana/fees.ts`), then rise with your own trades (the largest recent use plus headroom), never below those measurements: a run of cheap trades mustn't leave a costlier one short.
 
 ## Positions and PnL
 

@@ -22,7 +22,7 @@ import type { Profile, Settings, TierName } from '../settings/schema';
 import { fmtCompact, fmtPct, fmtSol } from '../ui/format';
 import { BlockhashCache, CuCalibration, PriorityFees, capCuPrice, cuKey } from './fees';
 import { activeProfile } from '../settings/profiles';
-import { TooBigError, buildTrade, simulate, type BuildInput, type BuiltTrade } from './execute';
+import { TooBigError, buildTrade, simulate, tipFor, type BuildInput, type BuiltTrade } from './execute';
 import { PersonalTables, type PersonalTableStore } from './personalTable';
 import type { Market } from '../venues/types';
 import type { CuKey } from './fees';
@@ -106,6 +106,8 @@ const BACKFILL_LIMIT = 60;
 /** How far back to look after the token balance changes, and how long to wait first for the RPC to index the trade. */
 const RESYNC_LIMIT = 10;
 const RESYNC_DELAY_MS = [1500, 5000];
+/** The base fee for a transaction with one signature. */
+const NETWORK_FEE_LAMPORTS = 5_000;
 
 /** "Sold 1.16K → 0.002 SOL", or null when the trade moved neither (a fee-only transaction). */
 function describeFill(f: Fill): string | null {
@@ -184,6 +186,30 @@ export class TradeEngine {
       return (price * limit) / 1e6 / LAMPORTS_PER_SOL;
     };
     return { priorityFeeSol: { fast: est('fast'), eco: est('eco') }, solUsd: this.solUsd };
+  }
+
+  /**
+   * What selling `pct` of the holding would bring in right now: the venue's own
+   * quote (pool fee, price impact, transfer tax) less the network fee, priority
+   * fee and tip the trade would pay. Null when there's nothing to sell.
+   */
+  quoteSell(req: { mint: string; pct: number; tier: TierName; presetIndex: number | null }, settings: Settings, profile: Profile): { outLamports: number; feesLamports: number } | null {
+    const live = this.markets.get(req.mint);
+    const balance = this.markets.tokenBalance(req.mint);
+    if (!live || balance.isZero() || !live.market.tradable()) return null;
+    const plan = planTrade(live.market, { side: 'sell', amount: req.pct, presetIndex: req.presetIndex }, settings, profile, balance);
+    const preset = req.presetIndex === null ? null : profile.sellPresets[req.presetIndex];
+    const tierCfg = profile.tiers[req.tier];
+    const close = plan.quote.inAmount.eq(balance) && settings.safety.autoCloseAta && live.market.canCloseTokenAccount?.() !== false;
+    const cuLimit = Math.max(this.cu.limit(cuKey(live.market.venue, 'sell', close)), live.market.cuFloor?.() ?? 0);
+    const cuPrice = capCuPrice(
+      preset?.cuPriceMicroLamports ?? tierCfg.cuPriceMicroLamports ?? this.fees.get(tierCfg.priorityLevel),
+      cuLimit,
+      Math.floor(settings.safety.maxPriorityFeeSol * LAMPORTS_PER_SOL),
+    );
+    const tipSol = settings.sendMode === 'sender' ? tipFor(req.tier, profile, preset?.tipSol ?? null, settings.safety.maxTipSol) : 0;
+    const feesLamports = NETWORK_FEE_LAMPORTS + Math.ceil((cuPrice * cuLimit) / 1e6) + Math.round(tipSol * LAMPORTS_PER_SOL);
+    return { outLamports: Number(plan.quote.out.toString()), feesLamports };
   }
 
   /** Starts background refreshes. Errors are swallowed: the click path refetches if a cache is cold. */

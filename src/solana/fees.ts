@@ -67,8 +67,9 @@ export const DEFAULT_CU: Record<CuKey, number> = {
 const HEADROOM = 1.15;
 /**
  * Routed trades cross a second pool whose cost varies far more (a CLMM leg
- * pays per tick crossed), so they keep more headroom and never go below the
- * measured default: a small trade must not size the limit for a big one.
+ * pays per tick crossed), so they keep more headroom. No limit goes below the
+ * measured default: a cheap trade must not size the limit for a costlier one
+ * (PumpSwap sells alone vary 91-116k).
  */
 const ROUTED_HEADROOM = 1.3;
 const isRouted = (key: CuKey) => key.includes('_ROUTED:');
@@ -90,9 +91,9 @@ export class CuCalibration {
   limit(key: CuKey): number {
     const s = this.seen[key];
     if (!s?.length) return DEFAULT_CU[key];
-    // The largest recent consumption plus headroom; consumption varies with curve state.
-    if (!isRouted(key)) return Math.min(MAX_CU, Math.ceil(Math.max(...s) * HEADROOM));
-    return Math.min(MAX_CU, Math.max(DEFAULT_CU[key], Math.ceil(Math.max(...s) * ROUTED_HEADROOM)));
+    // The largest recent consumption plus headroom, but never under the default.
+    const headroom = isRouted(key) ? ROUTED_HEADROOM : HEADROOM;
+    return Math.min(MAX_CU, Math.max(DEFAULT_CU[key], Math.ceil(Math.max(...s) * headroom)));
   }
 
   record(key: CuKey, unitsConsumed: number): void {
