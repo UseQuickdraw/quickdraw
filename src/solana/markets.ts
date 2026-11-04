@@ -8,7 +8,7 @@ import type { MarketView } from '../messages';
 import { resolveAddress } from './resolver';
 import { tokenAmount } from './tokens';
 import { openMarket } from '../venues/registry';
-import type { Market } from '../venues/types';
+import { migratesOnComplete, type Market } from '../venues/types';
 import { LAMPORTS_PER_SOL } from '../constants';
 import { pnl, type Position } from '../ledger/ledger';
 import { fetchTokenMeta } from './metadata';
@@ -51,6 +51,8 @@ export class MarketManager {
   private byMint = new Map<string, Entry>();
   private byAddress = new Map<string, string>(); // page address -> mint
   private tabMint = new Map<number, string>();
+  /** Mints whose holding just changed by a trade not booked yet, and why (see holdPnl). */
+  private held = new Map<string, Map<string, ReturnType<typeof setTimeout>>>();
   private solLamports_: number | null = null;
   private solSub: number | null = null;
 
@@ -102,6 +104,23 @@ export class MarketManager {
   get(mint: string): { market: Market; userAta: PublicKey; userAtaInfo: AccountInfo<Buffer> | null } | null {
     const e = this.byMint.get(mint);
     return e ? { market: e.market, userAta: e.userAta, userAtaInfo: e.userAtaInfo } : null;
+  }
+
+  /**
+   * While a trade is landing but not yet booked, the holding can drop (a sell)
+   * before the SOL it brought in is in the ledger, which would read as a loss of
+   * up to 100%. Held, the PnL still values the tokens the ledger counts at the
+   * live price, until every reason is released (or `maxMs` passes).
+   */
+  holdPnl(mint: string, reason: string, on: boolean, maxMs = 90_000): void {
+    const reasons = this.held.get(mint) ?? new Map<string, ReturnType<typeof setTimeout>>();
+    const timer = reasons.get(reason);
+    if (timer) clearTimeout(timer);
+    reasons.delete(reason);
+    if (on) reasons.set(reason, setTimeout(() => this.holdPnl(mint, reason, false), maxMs));
+    if (reasons.size) this.held.set(mint, reasons);
+    else this.held.delete(mint);
+    if (!on) this.refresh(mint);
   }
 
   /** Changes whenever the mint's market state or the wallet's token account does; -1 when it isn't watched. */
@@ -165,6 +184,8 @@ export class MarketManager {
 
   dispose(): void {
     for (const mint of [...this.byMint.keys()]) this.close(mint);
+    for (const reasons of this.held.values()) for (const t of reasons.values()) clearTimeout(t);
+    this.held.clear();
     if (this.solSub !== null) void this.conn.removeAccountChangeListener(this.solSub).catch(() => {});
     this.solSub = null;
   }
@@ -197,7 +218,7 @@ export class MarketManager {
             e.market.apply(key, info);
             e.version++;
             this.push(e);
-            if (!e.market.tradable() && e.market.venue.startsWith('PUMP_CURVE')) this.followMigration(e);
+            if (!e.market.tradable() && migratesOnComplete(e.market.venue)) this.followMigration(e);
           },
           { commitment: LIVE_COMMITMENT },
         ),
@@ -268,7 +289,9 @@ export class MarketManager {
     const raw = tokenAmount(e.userAtaInfo);
     const pos = this.ledger?.position(m.mint.mint.toBase58());
     const lamportsPerRaw = m.spotLamportsPerToken() / 10 ** m.mint.decimals;
-    const p = pos ? pnl(pos, BigInt(raw.toString()), lamportsPerRaw) : null;
+    // Held: a sell landed before it was booked, so count what the ledger still holds.
+    const heldRaw = pos && this.held.has(m.mint.mint.toBase58()) ? BigInt(pos.tokensRaw) : BigInt(raw.toString());
+    const p = pos ? pnl(pos, heldRaw, lamportsPerRaw) : null;
     return {
       mint: m.mint.mint.toBase58(),
       venue: m.venue,

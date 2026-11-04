@@ -25,7 +25,7 @@ import { BlockhashCache, CuCalibration, PriorityFees, capCuPrice, cuKey } from '
 import { activeProfile } from '../settings/profiles';
 import { TooBigError, buildTrade, simulate, tipFor, type BuildInput, type BuiltTrade } from './execute';
 import { PersonalTables, type PersonalTableStore } from './personalTable';
-import type { Market } from '../venues/types';
+import { migratesOnComplete, migrationTarget, type Market } from '../venues/types';
 import type { CuKey } from './fees';
 import { MarketManager, type MarketListener } from './markets';
 import { describePlan, planTrade, type TradeIntent, type TradePlan } from './trade';
@@ -329,9 +329,10 @@ export class TradeEngine {
     }
     // A curve can complete between clicks: re-resolve (to PumpSwap) before quoting.
     let market = live.market;
-    if (!market.tradable() && market.venue.startsWith('PUMP_CURVE')) {
+    if (!market.tradable() && migratesOnComplete(market.venue)) {
+      const target = migrationTarget(market.venue);
       market = await this.markets.reopen(req.mint).catch(() => {
-        throw new Error("This coin just bonded and its PumpSwap pool isn't open yet. The panel switches over by itself as soon as it is: try again in a few seconds.");
+        throw new Error(`This coin just bonded and its ${target} pool isn't open yet. The panel switches over by itself as soon as it is: try again in a few seconds.`);
       });
     }
 
@@ -372,6 +373,8 @@ export class TradeEngine {
     this.lastSendAt = now();
     const done = sendAndConfirm({ conn: this.conn, sendUrl, rawTx, signature, lastValidBlockHeight: bh.lastValidBlockHeight, onSent: (at) => markSent(at) });
     this.pending.add(done);
+    // A sell empties the holding the moment it lands, but is booked only once confirmed and read back: hold the PnL till then.
+    if (req.side === 'sell') this.markets.holdPnl(req.mint, signature, true);
 
     const first = await Promise.race([sent.then((at) => ({ at })), done.then((outcome) => ({ outcome }))]);
     const log = (o: SendOutcome) =>
@@ -396,6 +399,7 @@ export class TradeEngine {
 
     if ('outcome' in first && first.outcome.status === 'rejected') {
       this.pending.delete(done);
+      this.markets.holdPnl(req.mint, signature, false);
       log(first.outcome);
       throw new Error(first.outcome.error!.message);
     }
@@ -406,7 +410,10 @@ export class TradeEngine {
         log(o);
         await this.afterSettled(req, market.venue, built.cuKey, o);
       })
-      .finally(() => this.pending.delete(done));
+      .finally(() => {
+        this.pending.delete(done);
+        this.markets.holdPnl(req.mint, signature, false);
+      });
 
     const what = req.side === 'buy' ? `Buy ${fmtSol(req.amount)} SOL` : `Sell ${fmtPct(req.amount)}`;
     return {
@@ -467,14 +474,17 @@ export class TradeEngine {
     const key = prebuildKey(req, settings, profile);
     const started = Date.now();
     let building = false;
+    // A heavy route (up to ~85 ms a build) mustn't keep the worker busy: rebuild at most a third of the time.
+    let nextAt = 0;
     const tick = async () => {
-      if (building) return;
+      if (building || Date.now() < nextAt) return;
       if (Date.now() - started > PREBUILD_FOR_MS) return this.prebuild(null, settings, profile);
       const live = this.markets.get(req.mint);
       if (!live || !live.market.tradable()) return;
       const p = this.prebuilt;
       if (p && p.market === live.market && p.version === this.markets.stateVersion(req.mint)) return; // still current
       building = true;
+      const t0 = Date.now();
       try {
         const next = await this.prepare(req, settings, profile, live.market, live);
         if (this.hover?.key === key) this.prebuilt = next;
@@ -482,6 +492,7 @@ export class TradeEngine {
         // Nothing to prebuild (no tokens to sell, a route needing a table…): the click builds and reports it.
       } finally {
         building = false;
+        nextAt = Date.now() + 2 * (Date.now() - t0);
       }
     };
     this.hover = { key, timer: setInterval(() => void tick(), PREBUILD_EVERY_MS) };
@@ -534,7 +545,7 @@ export class TradeEngine {
         await this.storage?.saveCu(this.cu.snapshot()).catch(() => {});
       }
       if (tx) await this.recordFill(tx, req.mint);
-      if (o.error?.kind === 'curve_complete' && venue.startsWith('PUMP_CURVE')) await this.markets.reopen(req.mint).catch(() => {});
+      if (o.error?.kind === 'curve_complete' && migratesOnComplete(venue)) await this.markets.reopen(req.mint).catch(() => {});
     } else if (o.status === 'expired') {
       this.events.toast(req.tabId, {
         id: o.signature,
@@ -606,6 +617,8 @@ export class TradeEngine {
    * since the balance can change well before the history is indexed.
    */
   private resync(mint: string, attempt = 0): void {
+    // A sell made elsewhere: hold the PnL until it's found (or we stop looking).
+    if (attempt === 0 && BigInt(this.markets.tokenBalance(mint).toString()) < BigInt(this.ledger.position(mint)?.tokensRaw ?? '0')) this.markets.holdPnl(mint, 'resync', true);
     const t = this.resyncs.get(mint);
     if (t) clearTimeout(t);
     this.resyncs.set(
@@ -614,6 +627,7 @@ export class TradeEngine {
         this.resyncs.delete(mint);
         void this.syncHistory(mint, RESYNC_LIMIT).then(() => {
           if (!this.ledgerMatchesBalance(mint) && attempt + 1 < RESYNC_DELAY_MS.length) this.resync(mint, attempt + 1);
+          else this.markets.holdPnl(mint, 'resync', false);
         });
       }, RESYNC_DELAY_MS[attempt]),
     );
@@ -688,7 +702,7 @@ export class TradeEngine {
     } else if (sim.error?.kind === 'compute') {
       this.cu.bump(built.cuKey, built.cuLimit);
       void this.storage?.saveCu(this.cu.snapshot()).catch(() => {});
-    } else if (sim.error?.kind === 'curve_complete' && market.venue.startsWith('PUMP_CURVE')) {
+    } else if (sim.error?.kind === 'curve_complete' && migratesOnComplete(market.venue)) {
       void this.markets.reopen(req.mint).catch(() => {});
     } else if (sim.error?.kind === 'blockhash') {
       void this.blockhash.refresh().catch(() => {});

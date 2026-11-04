@@ -8,7 +8,7 @@
 import '../src/polyfills';
 import { describe, expect, it } from 'vitest';
 import { Connection, PublicKey, SystemProgram } from '@solana/web3.js';
-import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { NATIVE_MINT, getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { GLOBAL_PDA, PUMP_SDK } from '@pump-fun/pump-sdk';
 import { PUBLIC_MAINNET_RPC } from '../src/constants';
 import { defaultSettings } from '../src/settings/defaults';
@@ -26,12 +26,22 @@ const LIVE = process.env.LIVE === '1';
 const conn = new Connection(process.env.LIVE_RPC ?? PUBLIC_MAINNET_RPC, 'confirmed');
 const POOL = new PublicKey(process.env.LIVE_AMMV4_POOL ?? '9iL89qfbTMWygtawzGikL2j6ASbRYX7XSM5ePUcoQ5fk');
 
+/**
+ * A funded wallet with no WSOL account, like a burner's: the trade then creates
+ * (and closes) it, which is the costliest case for the compute limit. The pump.fun
+ * fee recipients all keep one, so the AMM's own owner wallet comes first.
+ */
 async function fundedWallet(): Promise<PublicKey> {
   const g = PUMP_SDK.decodeGlobal((await conn.getAccountInfo(GLOBAL_PDA))!);
-  for (const k of [g.feeRecipient, ...g.feeRecipients]) {
-    const info = await conn.getAccountInfo(k);
-    if (info?.owner.equals(SystemProgram.programId) && info.lamports > 2e9) return k;
+  const candidates = [new PublicKey('GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ'), g.feeRecipient, ...g.feeRecipients];
+  let fallback: PublicKey | null = null;
+  for (const k of candidates) {
+    const [info, wsol] = await conn.getMultipleAccountsInfo([k, getAssociatedTokenAddressSync(NATIVE_MINT, k, true)]);
+    if (!info?.owner.equals(SystemProgram.programId) || info.lamports < 2e9) continue;
+    if (!wsol) return k;
+    fallback ??= k;
   }
+  if (fallback) return fallback;
   throw new Error('no funded system wallet found');
 }
 

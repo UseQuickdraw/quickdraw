@@ -397,7 +397,8 @@ async function graduatedPool(conn: Connection, mint: PublicKey): Promise<PublicK
   for (const info of infos) {
     const ll = info?.owner.equals(LAUNCHLAB_PROGRAM_ID) ? decodeLaunchLabPool(info) : null;
     if (!ll || ll.status !== 2 || !ll.baseMint.equals(mint)) continue;
-    if (migrateType(info!) !== 1) throw new VenueError('This coin graduated to a Raydium AMM v4 pool (not supported yet)', 'UNSUPPORTED');
+    // Migrated to an AMM v4 pool instead: that venue finds it by its own scan.
+    if (migrateType(info!) !== 1) return null;
     // The platform config names the CPMM config its coins migrate into.
     const platform = await conn.getAccountInfo(ll.platformConfig, 'confirmed');
     if (!platform || platform.data.length < 720) return null;

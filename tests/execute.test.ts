@@ -23,11 +23,11 @@ describe('CU calibration', () => {
   it('uses defaults, then the largest recent consumption plus headroom', () => {
     const c = new CuCalibration();
     expect(c.limit('PUMPSWAP:buy')).toBe(DEFAULT_CU['PUMPSWAP:buy']);
-    c.record('PUMPSWAP:buy', 150_000);
-    c.record('PUMPSWAP:buy', 170_000);
-    expect(c.limit('PUMPSWAP:buy')).toBe(195_500);
-    c.bump('PUMPSWAP:buy', 195_500);
-    expect(c.limit('PUMPSWAP:buy')).toBeGreaterThan(195_500);
+    c.record('PUMPSWAP:buy', 190_000);
+    c.record('PUMPSWAP:buy', 210_000);
+    expect(c.limit('PUMPSWAP:buy')).toBe(241_500);
+    c.bump('PUMPSWAP:buy', 241_500);
+    expect(c.limit('PUMPSWAP:buy')).toBeGreaterThan(241_500);
   });
 
   it('never sizes a limit below its default', () => {

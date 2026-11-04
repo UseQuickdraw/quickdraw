@@ -24,50 +24,58 @@ export type CuKey = `${VenueId}:${CuOp}`;
  *   Raydium CPMM via an xStock on a Raydium CLMM buy+ata 133k, sell 108-109k
  *   Raydium CPMM buy+ata 52k, sell 44-46k; via STONK buy+ata 107k, sell 89-90k
  */
+// Raised where a fresh burner needed more: its first trade also creates its WSOL
+// account (and the coin's, and a routed coin's quote token's). Measured from a
+// wallet with none (tests/live-fresh-wallet.test.ts, 2026-11-04): first buys
+// CPMM 64k, PumpSwap (cashback coin) 164k, pump.fun curve via another token 188k,
+// PumpSwap via another coin 195k (sells 156-161k), CPMM routed 144k, LaunchLab
+// routed 142k, CLMM routed 176k; ~35% over those.
 export const DEFAULT_CU: Record<CuKey, number> = {
   'PUMP_CURVE:buy': 100_000,
   'PUMP_CURVE:buy+ata': 110_000,
   'PUMP_CURVE:sell': 70_000,
   'PUMP_CURVE:sell+close': 75_000,
-  'PUMPSWAP:buy': 160_000,
-  'PUMPSWAP:buy+ata': 180_000,
+  'PUMPSWAP:buy': 200_000,
+  'PUMPSWAP:buy+ata': 220_000,
   'PUMPSWAP:sell': 160_000,
   'PUMPSWAP:sell+close': 160_000,
   'LAUNCHLAB:buy': 100_000,
   'LAUNCHLAB:buy+ata': 105_000,
   'LAUNCHLAB:sell': 90_000,
   'LAUNCHLAB:sell+close': 90_000,
-  'PUMP_CURVE_ROUTED:buy': 200_000,
-  'PUMP_CURVE_ROUTED:buy+ata': 210_000,
+  'PUMP_CURVE_ROUTED:buy': 240_000,
+  'PUMP_CURVE_ROUTED:buy+ata': 255_000,
   'PUMP_CURVE_ROUTED:sell': 190_000,
   'PUMP_CURVE_ROUTED:sell+close': 195_000,
-  'PUMPSWAP_ROUTED:buy': 200_000,
-  'PUMPSWAP_ROUTED:buy+ata': 210_000,
-  'PUMPSWAP_ROUTED:sell': 190_000,
-  'PUMPSWAP_ROUTED:sell+close': 195_000,
+  'PUMPSWAP_ROUTED:buy': 245_000,
+  'PUMPSWAP_ROUTED:buy+ata': 265_000,
+  'PUMPSWAP_ROUTED:sell': 215_000,
+  'PUMPSWAP_ROUTED:sell+close': 220_000,
   'LAUNCHLAB_ROUTED:buy': 165_000,
-  'LAUNCHLAB_ROUTED:buy+ata': 175_000,
+  'LAUNCHLAB_ROUTED:buy+ata': 195_000,
   'LAUNCHLAB_ROUTED:sell': 165_000,
   'LAUNCHLAB_ROUTED:sell+close': 170_000,
-  'RAYDIUM_CPMM:buy': 65_000,
-  'RAYDIUM_CPMM:buy+ata': 72_000,
+  'RAYDIUM_CPMM:buy': 75_000,
+  'RAYDIUM_CPMM:buy+ata': 90_000,
   'RAYDIUM_CPMM:sell': 62_000,
   'RAYDIUM_CPMM:sell+close': 64_000,
   'RAYDIUM_CPMM_ROUTED:buy': 170_000,
-  'RAYDIUM_CPMM_ROUTED:buy+ata': 175_000,
+  'RAYDIUM_CPMM_ROUTED:buy+ata': 195_000,
   'RAYDIUM_CPMM_ROUTED:sell': 150_000,
   'RAYDIUM_CPMM_ROUTED:sell+close': 155_000,
-  // Raydium AMM v4 swap_base_in_v2, SOL-paired: buy+ata, sell and sell+close all ~34k
-  // (tests/live-ammv4.test.ts, 2026-11-04), plus ~35%.
-  'RAYDIUM_AMM:buy': 46_000,
-  'RAYDIUM_AMM:buy+ata': 46_000,
-  'RAYDIUM_AMM:sell': 46_000,
-  'RAYDIUM_AMM:sell+close': 46_000,
+  // Raydium AMM v4 swap_base_in_v2, SOL-paired, from a wallet with no WSOL account
+  // (a burner's: the trade creates and closes one): buy+ata 44.6k, sell ~30-34k
+  // (tests/live-ammv4.test.ts, 2026-11-04). A real first buy ran out at 46k, so
+  // these keep ~50% headroom.
+  'RAYDIUM_AMM:buy': 55_000,
+  'RAYDIUM_AMM:buy+ata': 70_000,
+  'RAYDIUM_AMM:sell': 55_000,
+  'RAYDIUM_AMM:sell+close': 58_000,
   // A coin's own CLMM or Orca pool through a Jupiter route: one swap, but it pays per tick crossed.
-  'CLMM_ROUTED:buy': 150_000,
-  'CLMM_ROUTED:buy+ata': 160_000,
-  'CLMM_ROUTED:sell': 140_000,
-  'CLMM_ROUTED:sell+close': 145_000,
+  'CLMM_ROUTED:buy': 220_000,
+  'CLMM_ROUTED:buy+ata': 240_000,
+  'CLMM_ROUTED:sell': 200_000,
+  'CLMM_ROUTED:sell+close': 205_000,
 };
 
 const HEADROOM = 1.15;

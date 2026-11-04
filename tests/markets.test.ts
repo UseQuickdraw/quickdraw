@@ -43,6 +43,25 @@ function liveReplay(fx: Fixture) {
 }
 
 describe('MarketManager', () => {
+  it('holds the PnL while a full sell is landing, instead of showing a 100% loss', async () => {
+    const { conn } = liveReplay(pool);
+    // Booked: bought 1,000,000 raw tokens for 0.1 SOL; the wallet now holds none (the sell landed, not yet booked).
+    const position = { mint: '', decimals: 6, boughtLamports: 100_000_000, soldLamports: 0, tokensRaw: '1000000', feesLamports: 0, tipsLamports: 0, rentLamports: 0, buys: 1, sells: 0, firstAt: 0, lastAt: 0, fills: [] };
+    const mgr = new MarketManager(conn, TEST_USER, () => {}, { position: () => position, feesAvoidedLamports: () => 0 } as never);
+    const view = await mgr.watch(pool.address, 7);
+    expect(view.pnlPct).toBe(-100);
+
+    mgr.holdPnl(view.mint, 'sig', true);
+    const held = await mgr.watch(view.mint, 7);
+    // The 1,000,000 tokens the ledger counts, at the live price.
+    expect(held.pnlSol).toBeCloseTo(view.spotSolPerToken * (1_000_000 / 10 ** view.decimals) - 0.1, 9);
+    expect(held.pnlPct).toBeGreaterThan(-100);
+
+    mgr.holdPnl(view.mint, 'sig', false);
+    expect((await mgr.watch(view.mint, 7)).pnlPct).toBe(-100);
+    mgr.dispose();
+  });
+
   it('watches, pushes subscription updates to the right tabs, and cleans up', async () => {
     vi.useFakeTimers();
     const { conn, subs, emit } = liveReplay(pool);

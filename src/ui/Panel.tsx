@@ -6,6 +6,7 @@ import { activeProfile } from '../settings/profiles';
 import { STARTER_PROFILES, padBuyPresets, padSellPresets } from '../settings/defaults';
 import type { PriorityLevel } from '../settings/schema';
 import { send } from './client';
+import { LiveQuote } from './liveQuote';
 import { watchPanelImage } from './panelImage';
 import { playResult } from './sounds';
 import type { ToolbarBridge } from './toolbar';
@@ -139,6 +140,23 @@ function riskText(risks: readonly MintRisk[], subject = 'Its creator'): string {
 /** How long a second buy click has to confirm a risky coin. */
 const RISK_CONFIRM_MS = 5_000;
 
+/** A hover quote from the worker, kept current as the market moves (see LiveQuote); null for no key, or until the first answer. */
+function useLiveQuote<T>(key: string | null, tick: unknown, ask: () => Promise<Result<unknown>>): T | null {
+  const [got, setGot] = useState<{ key: string; value: T } | null>(null);
+  const keyRef = useRef(key);
+  keyRef.current = key;
+  const askRef = useRef(ask);
+  askRef.current = ask;
+  const live = useRef<LiveQuote<T> | null>(null);
+  live.current ??= new LiveQuote<T>(
+    () => keyRef.current,
+    () => askRef.current(),
+    (k, value) => setGot({ key: k, value }),
+  );
+  useEffect(() => live.current!.refresh(), [key, tick]);
+  return key && got?.key === key ? got.value : null;
+}
+
 function resolveBuyTier(p: BuyPreset | null, sol: number, toggle: TierName, profile: Profile): TierName {
   if (p?.tier) return p.tier;
   // A fixed Fast tip dominates small trades, so small buys drop to Eco (shown on the button).
@@ -193,32 +211,16 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
   const [market, setMarket] = useState<MarketView | null>(null);
   const [marketErr, setMarketErr] = useState<string | null>(null);
   // What the hovered sell would really bring in (price impact and fees included), re-quoted as the market moves.
-  const [sellQuote, setSellQuote] = useState<{ key: string; quote: SellQuote } | null>(null);
-  const sellQuoteKey = sellHover && market && !state?.preview ? `${market.mint}:${sellHover.pct}:${sellHover.tier}:${sellHover.presetIndex}` : null;
-  useEffect(() => {
-    if (!sellQuoteKey || !sellHover || !market || sellHover.pct <= 0) return;
-    let stale = false;
-    void send({ type: 'QUOTE_SELL', mint: market.mint, pct: Math.min(100, sellHover.pct), tier: sellHover.tier, presetIndex: sellHover.presetIndex }).then(
-      (res) => {
-        const r = res as Result<SellQuote | null>;
-        if (!stale) setSellQuote(r.ok && r.data ? { key: sellQuoteKey, quote: r.data } : null);
-      },
-    );
-    return () => void (stale = true);
-  }, [sellQuoteKey, market?.spotSolPerToken, market?.tokenBalance]);
+  const sellQuoteKey = sellHover && market && !state?.preview && sellHover.pct > 0 ? `${market.mint}:${sellHover.pct}:${sellHover.tier}:${sellHover.presetIndex}` : null;
+  const sellQuote = useLiveQuote<SellQuote>(sellQuoteKey, `${market?.spotSolPerToken}:${market?.tokenBalance}`, () =>
+    send({ type: 'QUOTE_SELL', mint: market!.mint, pct: Math.min(100, sellHover!.pct), tier: sellHover!.tier, presetIndex: sellHover!.presetIndex }),
+  );
   // The same for a hovered buy button: what its SOL gets, after fees and price impact.
   const [buyHover, setBuyHover] = useState<{ sol: number; tier: TierName; presetIndex: number } | null>(null);
-  const [buyQuote, setBuyQuote] = useState<{ key: string; quote: BuyQuote } | null>(null);
   const buyQuoteKey = buyHover && market && !state?.preview ? `${market.mint}:${buyHover.sol}:${buyHover.tier}:${buyHover.presetIndex}` : null;
-  useEffect(() => {
-    if (!buyQuoteKey || !buyHover || !market) return;
-    let stale = false;
-    void send({ type: 'QUOTE_BUY', mint: market.mint, sol: buyHover.sol, tier: buyHover.tier, presetIndex: buyHover.presetIndex }).then((res) => {
-      const r = res as Result<BuyQuote | null>;
-      if (!stale) setBuyQuote(r.ok && r.data ? { key: buyQuoteKey, quote: r.data } : null);
-    });
-    return () => void (stale = true);
-  }, [buyQuoteKey, market?.spotSolPerToken]);
+  const buyQuote = useLiveQuote<BuyQuote>(buyQuoteKey, market?.spotSolPerToken, () =>
+    send({ type: 'QUOTE_BUY', mint: market!.mint, sol: buyHover!.sol, tier: buyHover!.tier, presetIndex: buyHover!.presetIndex }),
+  );
   // The hovered button's trade is built ahead in the worker (unsigned), so a click only signs and sends.
   const prebuildTrade = sellHover
     ? { side: 'sell' as const, amount: Math.min(100, sellHover.pct), tier: sellHover.tier, presetIndex: sellHover.presetIndex }
@@ -832,10 +834,10 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
   const showSwitch = s.ui.show.currencySwitch !== false;
   // Hovering a sell button previews its share of the holding in the header (not while editing presets).
   const sellPreview = draft || !market?.tokenBalance ? null : (sellHover?.pct ?? null);
-  const buyPreview = !draft && buyHover && buyQuote?.key === buyQuoteKey ? buyQuote.quote : null;
+  const buyPreview = !draft && buyHover ? buyQuote : null;
   const share = sellPreview === null ? 1 : Math.min(100, Math.max(0, sellPreview)) / 100;
   // The hovered sell's real proceeds once quoted; until then (and in preview) the spot value of its share.
-  const previewQuote = sellPreview !== null && sellQuote?.key === sellQuoteKey ? sellQuote.quote : null;
+  const previewQuote = sellPreview !== null ? sellQuote : null;
   const headerSol = previewQuote ? Math.max(0, previewQuote.netSol) : holdingSol === null ? null : holdingSol * share;
   const hoverSell = (pct: number | null, t: TierName = tier, presetIndex: number | null = null) => ({
     onPointerEnter: () => setSellHover(pct === null ? null : { pct, tier: t, presetIndex }),
