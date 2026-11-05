@@ -20,7 +20,8 @@ import { PUMP_AMM_PROGRAM_ID } from '@pump-fun/pump-sdk/swap';
 import { LAMPORTS_PER_SOL, SENDER } from '../constants';
 import type { Endpoints, TradeResult } from '../messages';
 import type { Profile, Settings, TierName } from '../settings/schema';
-import { fmtCompact, fmtPct, fmtSol } from '../ui/format';
+import { fmtCompact, fmtPct, fmtSol, shortAddr } from '../ui/format';
+import type { TradeNotice } from '../notify/telegram';
 import { BlockhashCache, CuCalibration, PriorityFees, capCuPrice, cuKey } from './fees';
 import { activeProfile } from '../settings/profiles';
 import { TooBigError, buildTrade, simulate, tipFor, type BuildInput, type BuiltTrade } from './execute';
@@ -99,6 +100,8 @@ export interface EngineEvents {
   market: MarketListener;
   /** A status update for the tab that made the trade (sent -> landed / failed / expired). */
   toast(tabId: number | undefined, toast: Toast): void;
+  /** A trade settled, or one made elsewhere was found: for Telegram alerts. */
+  notice?(n: TradeNotice): void;
 }
 
 const now = () => performance.timeOrigin + performance.now();
@@ -147,6 +150,14 @@ function describeFill(f: Fill): string | null {
   const tokens = fmtCompact(Math.abs(Number(f.tokenDelta)) / 10 ** f.decimals);
   return f.side === 'buy' ? `Bought ${tokens} for ${sol} SOL` : f.side === 'sell' ? `Sold ${tokens} → ${sol} SOL` : null;
 }
+/** "Bought 9.7K FRIC for 0.05 SOL" / "Sold 1.2M FRIC for 0.41 SOL", or null for a fee-only transaction. */
+function fillLine(f: Fill, ticker: string): string | null {
+  const sol = fmtSol(Math.abs(f.tradeLamports) / LAMPORTS_PER_SOL);
+  const tokens = `${fmtCompact(Math.abs(Number(f.tokenDelta)) / 10 ** f.decimals)} ${ticker}`;
+  return f.side === 'buy' ? `Bought ${tokens} for ${sol} SOL` : f.side === 'sell' ? `Sold ${tokens} for ${sol} SOL` : null;
+}
+/** A trade found on chain this long after it happened is history, not news: no alert. */
+const OUTSIDE_NOTICE_MAX_AGE_S = 30 * 60;
 const fillCosts = (f: Fill) => `fee ${fmtSol(f.feeLamports / LAMPORTS_PER_SOL)} SOL · tip ${fmtSol(f.tipLamports / LAMPORTS_PER_SOL)} SOL`;
 const secs = (from: number | undefined, to: number | undefined) => (from !== undefined && to !== undefined ? `${((to - from) / 1000).toFixed(1)}s` : '?');
 const solscanTx = (sig: string) => `https://solscan.io/tx/${sig}`;
@@ -168,6 +179,8 @@ export class TradeEngine {
   private readonly backfilled = new Set<string>();
   private readonly resyncs = new Map<string, ReturnType<typeof setTimeout>>();
   private hover: { key: string; timer: ReturnType<typeof setInterval> } | null = null;
+  /** Signatures this engine sent, so a resync doesn't report them as trades made elsewhere. */
+  private readonly sent = new Set<string>();
   private prebuilt: Prepared | null = null;
   readonly blockhash: BlockhashCache;
   readonly fees: PriorityFees;
@@ -367,6 +380,8 @@ export class TradeEngine {
 
     // ------------------------------------------------------------ live send
     const signature = bs58.encode(built.tx.signatures[0]!);
+    this.sent.add(signature);
+    if (this.sent.size > 500) this.sent.delete(this.sent.values().next().value!);
     const rawTx = Buffer.from(built.tx.serialize()).toString('base64');
     let markSent!: (at: number) => void;
     const sent = new Promise<number>((r) => (markSent = r));
@@ -525,6 +540,7 @@ export class TradeEngine {
         await this.storage?.saveCu(this.cu.snapshot()).catch(() => {});
       }
       const fill = tx ? await this.recordFill(tx, req.mint) : null;
+      this.events.notice?.({ kind: 'landed', text: (fill && fillLine(fill, this.ticker(req.mint))) ?? `${this.tradeName(req)} landed`, signature: o.signature });
       if (fill) {
         this.events.toast(req.tabId, {
           id: o.signature,
@@ -537,6 +553,7 @@ export class TradeEngine {
       }
     } else if (o.status === 'failed') {
       this.events.toast(req.tabId, { id: o.signature, level: 'error', text: `Failed on chain: ${o.error!.message}`, hover: slot, link: solscanTx(o.signature), sound: 'failed' });
+      this.events.notice?.({ kind: 'failed', text: `${this.tradeName(req)} failed: ${o.error!.message}`, signature: o.signature });
       // A failed transaction still paid its fee: book it.
       const tx = await this.fetchLanded(o.signature);
       // Out of compute on chain: the next click gets a higher limit (as the message says).
@@ -553,6 +570,7 @@ export class TradeEngine {
         text: `Expired, not landed (rebroadcast ${o.rebroadcasts}×). Nothing was spent. Click again if you still want it.`,
         sound: 'failed',
       });
+      this.events.notice?.({ kind: 'expired', text: `${this.tradeName(req)} expired without landing. Nothing was spent.`, signature: null });
     }
   }
 
@@ -625,7 +643,7 @@ export class TradeEngine {
       mint,
       setTimeout(() => {
         this.resyncs.delete(mint);
-        void this.syncHistory(mint, RESYNC_LIMIT).then(() => {
+        void this.syncHistory(mint, RESYNC_LIMIT, true).then(() => {
           if (!this.ledgerMatchesBalance(mint) && attempt + 1 < RESYNC_DELAY_MS.length) this.resync(mint, attempt + 1);
           else this.markets.holdPnl(mint, 'resync', false);
         });
@@ -638,8 +656,22 @@ export class TradeEngine {
     return (this.ledger.position(mint)?.tokensRaw ?? '0') === this.markets.tokenBalance(mint).toString();
   }
 
-  /** Books the wallet's trades of `mint` among its last `limit` transactions; returns how many were new. */
-  private async syncHistory(mint: string, limit: number): Promise<number> {
+  /** The coin's symbol, or its shortened address. */
+  private ticker(mint: string): string {
+    return this.markets.symbol(mint) ?? shortAddr(mint);
+  }
+
+  /** "Buy 0.1 SOL of FRIC" / "Sell 50% of FRIC". */
+  private tradeName(req: { side: 'buy' | 'sell'; amount: number; mint: string }): string {
+    return `${req.side === 'buy' ? `Buy ${fmtSol(req.amount)} SOL` : `Sell ${fmtPct(req.amount)}`} of ${this.ticker(req.mint)}`;
+  }
+
+  /**
+   * Books the wallet's trades of `mint` among its last `limit` transactions;
+   * returns how many were new. With `alert`, a recent one this engine didn't
+   * send (an Axiom TP/SL, another bot) raises an "outside" notice.
+   */
+  private async syncHistory(mint: string, limit: number, alert = false): Promise<number> {
     const entry = this.markets.get(mint);
     if (!entry) return 0;
     const sigs = await this.conn.getSignaturesForAddress(entry.userAta, { limit }, 'confirmed').catch(() => []);
@@ -657,6 +689,9 @@ export class TradeEngine {
         if (this.ledger.position(mint)?.fills.some((f) => f.signature === fill.signature)) continue; // booked meanwhile
         await this.ledger.record(fill);
         added++;
+        const recent = fill.blockTime !== null && Date.now() / 1000 - fill.blockTime < OUTSIDE_NOTICE_MAX_AGE_S;
+        const line = fillLine(fill, this.ticker(mint));
+        if (alert && recent && line && !this.sent.has(fill.signature)) this.events.notice?.({ kind: 'outside', text: `${line} (outside Quickdraw)`, signature: fill.signature });
       } catch {
         // Not a fill for this wallet; skip it.
       }

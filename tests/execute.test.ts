@@ -285,7 +285,7 @@ describe('TradeEngine (dry run)', () => {
       await engine.ledger.record({ signature: 'our-buy', slot: 1, blockTime: null, mint, side: 'buy', ok: true, tradeLamports: -100_000_000, tokenDelta: '1000', decimals: view.decimals, feeLamports: 5_000, tipLamports: 0, rentLamports: 0, walletLamports: -100_005_000 });
       sellTx = {
         slot: 2,
-        blockTime: null,
+        blockTime: Math.floor(Date.now() / 1000) - 5,
         transaction: { signatures: ['outside-sell'], message: { getAccountKeys: () => ({ length: 2, get: (i: number) => [signer.publicKey, ata][i] }) } },
         meta: {
           fee: 5_000,
@@ -296,6 +296,8 @@ describe('TradeEngine (dry run)', () => {
           postTokenBalances: [{ accountIndex: 1, mint, owner: signer.publicKey.toBase58(), uiTokenAmount: { amount: '0', decimals: view.decimals, uiAmount: null, uiAmountString: '' } }],
         },
       } as unknown as VersionedTransactionResponse;
+      const notices: unknown[] = [];
+      (engine as unknown as { events: { notice(n: unknown): void } }).events.notice = (n) => notices.push(n);
       // The wallet now holds none, so the ledger (1,000) doesn't match until the sell is found.
       (engine as unknown as { resync(m: string): void }).resync(mint);
       await vi.advanceTimersByTimeAsync(1_500 + 4_000 + 10_000);
@@ -303,9 +305,53 @@ describe('TradeEngine (dry run)', () => {
       const p = engine.ledger.position(mint)!;
       expect(p.soldLamports).toBe(150_000_000);
       expect(p.tokensRaw).toBe('0');
+      // A trade this engine didn't send, from moments ago: a Telegram alert.
+      expect(notices).toEqual([{ kind: 'outside', text: expect.stringMatching(/^Sold .* for 0\.15 SOL \(outside Quickdraw\)$/), signature: 'outside-sell' }]);
       // Matched now, so it stops looking.
       await vi.advanceTimersByTimeAsync(30_000);
       expect(looks).toBe(3);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("doesn't report a trade this wallet sent from Quickdraw as one made elsewhere", async () => {
+    vi.useFakeTimers();
+    try {
+      let looks = 0;
+      let sellTx: VersionedTransactionResponse | null = null;
+      const { engine, signer } = engineFor(pool, () => ({}), {
+        // The sell only shows up in the address's history on the third look.
+        getSignaturesForAddress: async () => (++looks >= 3 && sellTx ? [{ signature: 'outside-sell', err: null }] : []),
+        getTransaction: async () => sellTx,
+      });
+      const view = await engine.markets.watch(pool.address, 1);
+      const mint = view.mint;
+      const ata = engine.markets.get(mint)!.userAta;
+      // Booked earlier: a buy of 1,000 tokens for 0.1 SOL. Then a sell of all of it elsewhere for 0.15 SOL.
+      await engine.ledger.record({ signature: 'our-buy', slot: 1, blockTime: null, mint, side: 'buy', ok: true, tradeLamports: -100_000_000, tokenDelta: '1000', decimals: view.decimals, feeLamports: 5_000, tipLamports: 0, rentLamports: 0, walletLamports: -100_005_000 });
+      sellTx = {
+        slot: 2,
+        blockTime: Math.floor(Date.now() / 1000) - 5,
+        transaction: { signatures: ['outside-sell'], message: { getAccountKeys: () => ({ length: 2, get: (i: number) => [signer.publicKey, ata][i] }) } },
+        meta: {
+          fee: 5_000,
+          err: null,
+          preBalances: [1_000_000_000, 2_039_280],
+          postBalances: [1_000_000_000 + 150_000_000 - 5_000, 2_039_280],
+          preTokenBalances: [{ accountIndex: 1, mint, owner: signer.publicKey.toBase58(), uiTokenAmount: { amount: '1000', decimals: view.decimals, uiAmount: null, uiAmountString: '' } }],
+          postTokenBalances: [{ accountIndex: 1, mint, owner: signer.publicKey.toBase58(), uiTokenAmount: { amount: '0', decimals: view.decimals, uiAmount: null, uiAmountString: '' } }],
+        },
+      } as unknown as VersionedTransactionResponse;
+      const notices: unknown[] = [];
+      (engine as unknown as { events: { notice(n: unknown): void } }).events.notice = (n) => notices.push(n);
+      // Quickdraw sent this sell itself; the history check finds it before the confirmation books it.
+      (engine as unknown as { sent: Set<string> }).sent.add('outside-sell');
+      (engine as unknown as { resync(m: string): void }).resync(mint);
+      await vi.advanceTimersByTimeAsync(1_500 + 4_000 + 10_000);
+      expect(engine.ledger.position(mint)!.soldLamports).toBe(150_000_000);
+      expect(notices).toEqual([]);
       engine.dispose();
     } finally {
       vi.useRealTimers();

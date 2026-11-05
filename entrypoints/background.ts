@@ -28,7 +28,9 @@ import { LAMPORTS_PER_SOL, SWEEP_CONFIRM_PHRASE } from '../src/constants';
 import { connectionFor, dropConnection } from '../src/solana/connection';
 import { TradeEngine, type TradeLogEntry } from '../src/solana/engine';
 import { perWalletIntent } from '../src/solana/trade';
-import { fmtSol } from '../src/ui/format';
+import { fmtSol, shortAddr } from '../src/ui/format';
+import { hasOrigins } from '../src/solana/permissions';
+import { TELEGRAM_ORIGIN, findChat, formatNotice, sendTelegram, wants, type TradeNotice } from '../src/notify/telegram';
 import { parseLedger } from '../src/ledger/store';
 import { platformFeesAvoided, type Position } from '../src/ledger/ledger';
 
@@ -98,6 +100,7 @@ async function engineFor(pubkey: string): Promise<TradeEngine> {
     {
       market: (market, tabs) => onMarket(pubkey, market, tabs),
       toast: (tabId, t) => broadcast({ type: 'TOAST', ...t }, tabId === undefined ? undefined : new Set([tabId])),
+      notice: (n) => void alert(pubkey, n),
     },
     {
       loadCu: async () => (await browser.storage.local.get(CU_KEY))[CU_KEY],
@@ -210,7 +213,16 @@ async function walletState(): Promise<WalletState> {
     keystore.listWallets(),
     keystore.getActive(),
   ]);
-  return { hasWallet, needsPassword, pubkey, hasEndpoints, onboarded, preview: onboarded && !hasWallet, settings, wallets, active };
+  return { hasWallet, needsPassword, pubkey, hasEndpoints, onboarded, preview: onboarded && !hasWallet, settings, wallets, active, feesSavedSol: await feesSavedSol(wallets) };
+}
+
+/** What a 1% platform fee would have cost across every wallet's ledger (read straight from storage, no RPC). */
+async function feesSavedSol(wallets: { pubkey: string }[]): Promise<number> {
+  const keys = [LEDGER_KEY, ...wallets.map((w) => `${LEDGER_KEY}:${w.pubkey}`)];
+  const stored = await browser.storage.local.get(keys).catch(() => ({}) as Record<string, unknown>);
+  let lamports = 0;
+  for (const k of keys) if (stored[k] !== undefined) lamports += platformFeesAvoided(parseLedger(stored[k]).values());
+  return lamports / LAMPORTS_PER_SOL;
 }
 
 async function pushState(): Promise<void> {
@@ -425,6 +437,25 @@ async function handleContent(req: ContentRequest, sender: Sender): Promise<unkno
   }
 }
 
+// ------------------------------------------------------------ Telegram alerts
+
+/** Sent one at a time, a second apart: Telegram allows about one message a second per chat. */
+let alertQueue: Promise<void> = Promise.resolve();
+
+/** Sends a trade notice to the user's Telegram bot, if they connected one and want this kind. */
+async function alert(pubkey: string, n: TradeNotice): Promise<void> {
+  const notify = await keystore.getNotify().catch(() => null);
+  if (!wants(notify, n.kind) || !(await hasOrigins([TELEGRAM_ORIGIN]).catch(() => false))) return;
+  const wallets = await keystore.listWallets();
+  // Name the wallet only when there's more than one.
+  const name = wallets.length > 1 ? (wallets.find((w) => w.pubkey === pubkey)?.name ?? shortAddr(pubkey)) : null;
+  const text = formatNotice(n, name);
+  alertQueue = alertQueue.then(async () => {
+    await sendTelegram(notify!.botToken, notify!.chatId, text).catch((e) => console.warn('[quickdraw] Telegram alert not sent:', errorMessage(e)));
+    await new Promise((r) => setTimeout(r, 1_000));
+  });
+}
+
 async function testEndpoints(ep: Endpoints): Promise<EndpointTestResult> {
   const out: EndpointTestResult = { rpc: { ok: false }, ws: { ok: false }, sender: { ok: false } };
   const t0 = performance.now();
@@ -515,6 +546,19 @@ async function handlePage(req: PageRequest): Promise<unknown> {
       return keystore.getEndpoints();
     case 'TEST_ENDPOINTS':
       return testEndpoints(req.endpoints);
+    case 'GET_NOTIFY':
+      return keystore.getNotify();
+    case 'SET_NOTIFY':
+      await keystore.setNotify(req.notify);
+      return null;
+    case 'NOTIFY_CONNECT':
+      return findChat(req.botToken);
+    case 'NOTIFY_TEST': {
+      const notify = await keystore.getNotify();
+      if (!notify) throw new Error('Connect a Telegram bot first');
+      await sendTelegram(notify.botToken, notify.chatId, '✅ Quickdraw alerts are on. Trades will show up here.');
+      return null;
+    }
     case 'SAVE_SETTINGS': {
       const saved = await saveSettings(req.settings);
       eachEngine((eng) => eng.setSettings(saved));

@@ -44,6 +44,7 @@ Quickdraw is a **browser extension** for Chrome, Brave, Edge and other Chromium 
 - Live position and PnL per coin, in SOL or USD, with a ledger you can export as CSV.
 - Several wallets at once: every click trades from each selected wallet, with a buy's amount split evenly between them (1 SOL across two wallets is 0.5 each).
 - Hotkeys, per-button fee overrides, and a sweep to your main wallet.
+- Optional Telegram alerts from your own bot: trades landing or failing, and trades made elsewhere (an Axiom take-profit) on coins you've opened.
 - Fully adjustable look: rows, button shape, colours, a background image, pop-up position and duration, sounds.
 - Dry run mode that simulates every trade on chain without sending it.
 
@@ -111,7 +112,7 @@ Quickdraw signs trades without asking, so it's built to assume the worst about t
 - **Your key never leaves your browser.** It's encrypted at rest (AES-256-GCM) with a device key your browser generates and won't let anything read out, and it's only ever decrypted in the extension's background worker. The trading site, and the panel drawn on it, never see it.
 - **Every transaction is checked before it's signed.** A signing guard inspects each one and refuses anything outside a strict allowlist: only known programs, SOL only to the landing tip or your own accounts, fees within your caps. Sending SOL anywhere else is only possible through the sweep, to the address you saved, after you type a confirmation phrase.
 - **No double buys.** A trade that doesn't land is rebroadcast as the same signed transaction, never re-signed. If it expires, nothing is spent.
-- **Nothing in between.** No server, no account, no analytics. Quickdraw only talks to the RPC and sender you set, and routes are built locally (no Jupiter or other trading API).
+- **Nothing in between.** No server, no account, no analytics. Quickdraw only talks to the RPC and sender you set (and your own Telegram bot, if you connect one for alerts), and routes are built locally (no Jupiter or other trading API).
 - **Checkable builds.** Dependencies are pinned, there's no remote code, and each release is built by GitHub Actions from its tag with a checksum you can reproduce from source.
 
 There's no password, so **anyone who can use your browser profile can trade with the burner** or reveal its key. Use a browser profile only you use, keep its other extensions to a minimum, and keep your computer free of malware.

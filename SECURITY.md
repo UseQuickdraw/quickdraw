@@ -23,7 +23,8 @@ Quickdraw signs transactions without confirmation, so the design assumes the wor
 | Sweep misuse | The only path where SOL may leave for a non-tip address. It sends to the sweep address saved in settings (never one from a page), requires the typed phrase `SWEEP ALL SOL` from an extension page, and the guard allows exactly one transfer to that one address. |
 | Hotkeys firing by accident | Off by default, ignored while typing in page inputs or the panel, and they obey the same caps as clicks. |
 | Supply chain | Exact dependency pins plus a committed lockfile, CI on every PR, releases built in CI with checksums, no remote code. The SDK program IDs are asserted in tests. |
-| Rogue extension pages / other extensions | Every message must come from this extension's ID. Privileged requests (reveal, backup, import, delete, endpoints, settings) are accepted only from the extension's own pages. |
+| Telegram alerts (off unless you connect a bot) | The worker sends alert text (the trade, the wallet's name, the transaction) to your bot through `api.telegram.org`, so Telegram sees it. The bot token is sealed with the endpoints, never exported with settings, and only sent to Telegram; error messages never echo it. Connecting and changing alerts are extension-page requests only. |
+| Rogue extension pages / other extensions | Every message must come from this extension's ID. Privileged requests (reveal, backup, import, delete, endpoints, settings, Telegram alerts) are accepted only from the extension's own pages. |
 
 ### Known limitations
 

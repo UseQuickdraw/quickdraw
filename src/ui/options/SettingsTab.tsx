@@ -6,6 +6,7 @@ import { useSettingsDraft } from './settingsDraft';
 import { comboFromEvent, duplicateCombos } from '../hotkeys';
 import { BASE58_ADDRESS } from '../../sites/types';
 import { LIVE_WARNING } from '../warnings';
+import { NotificationsCard } from './NotificationsCard';
 
 /** Click, then press a key combo. Backspace/Delete clears it. */
 function HotkeyInput({ value, onChange }: { value: string | null; onChange(v: string | null): void }) {
@@ -84,6 +85,9 @@ export function SettingsTab({ state, refresh }: { state: WalletState; refresh():
           </select>
         </label>
       </div>
+
+      <h2>Telegram alerts</h2>
+      <NotificationsCard />
 
       <h2>Hotkeys</h2>
       <div class="card">

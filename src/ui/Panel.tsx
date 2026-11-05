@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { MintRisk } from '../solana/tokens';
 import type { BuyQuote, MarketView, PanelEvent, Result, SellQuote, TradeResult, WalletRow, WalletState } from '../messages';
 import type { BuyPreset, PanelState, Profile, TierName } from '../settings/schema';
@@ -7,7 +7,7 @@ import { STARTER_PROFILES, padBuyPresets, padSellPresets } from '../settings/def
 import type { PriorityLevel } from '../settings/schema';
 import { send } from './client';
 import { LiveQuote } from './liveQuote';
-import { watchPanelImage } from './panelImage';
+import { decodePanelImage, decodedPanelImage, peekPanelImage, watchPanelImage } from './panelImage';
 import { playResult } from './sounds';
 import type { ToolbarBridge } from './toolbar';
 import { isTypingTarget, matches } from './hotkeys';
@@ -57,15 +57,6 @@ function backgroundVars(bg: string): Record<string, string> {
   };
 }
 
-/** Decodes a data: URL without fetching it (a page's CSP may forbid fetching or showing data: images). */
-function dataUrlBlob(url: string): Blob {
-  const [head, b64 = ''] = url.split(',', 2);
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Blob([bytes], { type: /data:([^;,]+)/.exec(head ?? '')?.[1] ?? 'image/png' });
-}
-
 /**
  * The background image, drawn on a canvas filling the panel (cover-fit). A
  * canvas, not an <img> or CSS url(): trading sites' Content-Security-Policy
@@ -73,10 +64,12 @@ function dataUrlBlob(url: string): Blob {
  */
 function PanelImage({ src, opacity }: { src: string; opacity: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
+  // Before the first paint, so an image decoded earlier shows with the panel, not a frame after it.
+  useLayoutEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    let bitmap: ImageBitmap | null = null;
+    // Decoded once per page (see panelImage.ts) and kept: drawn at once when it's ready.
+    let bitmap: ImageBitmap | null = decodedPanelImage(src);
     let cancelled = false;
     const draw = () => {
       if (!bitmap) return;
@@ -90,19 +83,20 @@ function PanelImage({ src, opacity }: { src: string; opacity: number }) {
       const dh = bitmap.height * scale;
       canvas.getContext('2d')?.drawImage(bitmap, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
     };
-    void createImageBitmap(dataUrlBlob(src))
-      .then((b) => {
-        if (cancelled) return b.close();
-        bitmap = b;
-        draw();
-      })
-      .catch(() => {});
+    if (bitmap) draw();
+    else
+      void decodePanelImage(src)
+        .then((b) => {
+          if (cancelled) return;
+          bitmap = b;
+          draw();
+        })
+        .catch(() => {});
     const ro = new ResizeObserver(draw);
     ro.observe(canvas);
     return () => {
       cancelled = true;
       ro.disconnect();
-      bitmap?.close();
     };
   }, [src]);
   return <canvas class="it-bgimage" ref={ref} style={{ opacity }} aria-hidden="true" />;
@@ -200,7 +194,9 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
   // The pencil: preset amounts as editable text while editing, null otherwise.
   const [draft, setDraft] = useState<{ buy: string[]; sell: string[]; sellSol: string[] } | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [bgImage, setBgImage] = useState<string | null>(null);
+  const [bgImage, setBgImage] = useState<string | null>(() => peekPanelImage() ?? null);
+  // The "Saved" total last seen with a coin: kept while the next coin loads, so the line never blinks out.
+  const lastSaved = useRef<number | null>(null);
   useEffect(() => watchPanelImage(setBgImage), []);
   const [busy, setBusy] = useState(false);
   // The hovered sell button: the % of the holding it would sell, shown in the sell header.
@@ -624,6 +620,9 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
 
   const tierCfg = profile.tiers[tier];
   const holdingSol = market ? market.tokenBalance * market.spotSolPerToken : null;
+  if (market) lastSaved.current = market.feesSavedSol;
+  // Wallet-wide, so it doesn't wait for the coin: the state's total until the coin's view brings a fresher one.
+  const savedSol = market?.feesSavedSol ?? lastSaved.current ?? state.feesSavedSol ?? 0;
   const venueLabel = preview ? 'PREVIEW' : market ? ({ PUMP_CURVE: 'CURVE', PUMP_CURVE_ROUTED: 'CURVE', PUMPSWAP: 'PUMPSWAP', PUMPSWAP_ROUTED: 'PUMPSWAP', LAUNCHLAB: 'LAUNCHLAB', LAUNCHLAB_ROUTED: 'LAUNCHLAB', RAYDIUM_CPMM: 'RAYDIUM', RAYDIUM_CPMM_ROUTED: 'RAYDIUM', CLMM_ROUTED: 'CLMM', RAYDIUM_AMM: 'RAYDIUM V4' } as const)[market.venue] : marketErr ? 'N/A' : address && walletReady ? '…' : '—';
   // On-chain symbol when the token has metadata, else the start of the mint.
   const symbol = market?.symbol || (market ? (mint ?? address ?? '').slice(0, 4) : '');
@@ -1121,9 +1120,9 @@ You get about ${fmtSol(Math.max(0, previewQuote.netSol))} SOL: ${fmtSol(previewQ
             </span>
           </footer>
         )}
-        {s.ui.show.feesSaved && market && market.feesSavedSol > 0 && (
+        {s.ui.show.feesSaved && savedSol > 0 && (
           <div class="it-saved" title="1% of all the volume you've traded with Quickdraw: what a platform fee would have cost">
-            Saved {amount(market.feesSavedSol)} vs a 1% platform fee
+            Saved {amount(savedSol)} vs a 1% platform fee
           </div>
         )}
         {!pos.compact && resizeHandle('e')}

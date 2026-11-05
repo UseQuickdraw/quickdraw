@@ -15,7 +15,7 @@ import { Keypair } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { browser } from 'wxt/browser';
 import { MIN_PASSWORD_LENGTH } from '../constants';
-import { EndpointsSchema, type Endpoints } from '../messages';
+import { EndpointsSchema, NotifySchema, type Endpoints, type Notify } from '../messages';
 import { decrypt, encrypt, isEncryptedBlob, type EncryptedBlob } from './crypto';
 import { parseSecretKey } from './keys';
 import { indexedDbKeyStore, isSealed, newDeviceKey, open, seal, type DeviceKeyStore, type Sealed } from './device';
@@ -30,6 +30,9 @@ const LEGACY_VAULT_KEY = 'vault';
 const LEGACY_ENDPOINTS_KEY = 'endpointsVault';
 /** Sealing label for endpoints, which belong to no particular wallet. */
 const ENDPOINTS_LABEL = 'endpoints';
+/** Telegram alerts (the bot token): sealed like the endpoints. */
+const NOTIFY_KEY = 'deviceNotify';
+const NOTIFY_LABEL = 'notify';
 export const MAX_WALLETS = 25;
 
 let deviceStore: DeviceKeyStore = indexedDbKeyStore;
@@ -260,6 +263,31 @@ export async function setEndpoints(endpoints: Endpoints): Promise<void> {
   endpointsCache = { value: valid };
 }
 
+let notifyCache: { value: Notify | null } | null = null;
+
+export async function getNotify(): Promise<Notify | null> {
+  if (notifyCache) return notifyCache.value;
+  const v = await local<unknown>(NOTIFY_KEY);
+  let value: Notify | null = null;
+  if (isSealed(v, 'endpoints')) {
+    const parsed = NotifySchema.safeParse(await openJson<unknown>(v).catch(() => null));
+    value = parsed.success ? parsed.data : null;
+  }
+  notifyCache = { value };
+  return value;
+}
+
+export async function setNotify(notify: Notify | null): Promise<void> {
+  if (!notify) {
+    await browser.storage.local.remove(NOTIFY_KEY);
+    notifyCache = { value: null };
+    return;
+  }
+  const valid = NotifySchema.parse(notify);
+  await browser.storage.local.set({ [NOTIFY_KEY]: await sealJson('endpoints', valid, NOTIFY_LABEL) });
+  notifyCache = { value: valid };
+}
+
 /** Backup flow (extension pages only): the base58 secret. */
 export async function revealSecret(pubkey?: string): Promise<string> {
   return bs58.encode((await getKeypair(pubkey)).secretKey);
@@ -278,11 +306,12 @@ export async function exportEncryptedBackup(password: string, pubkey?: string): 
   }
 }
 
-/** Deletes every wallet and the endpoints. */
+/** Deletes every wallet, the endpoints and the Telegram bot. */
 export async function deleteWallet(): Promise<void> {
   keypairs.clear();
   endpointsCache = null;
-  await browser.storage.local.remove([WALLETS_KEY, ACTIVE_KEY, SINGLE_WALLET_KEY, ENDPOINTS_KEY, LEGACY_VAULT_KEY, LEGACY_ENDPOINTS_KEY]);
+  notifyCache = null;
+  await browser.storage.local.remove([WALLETS_KEY, ACTIVE_KEY, SINGLE_WALLET_KEY, ENDPOINTS_KEY, NOTIFY_KEY, LEGACY_VAULT_KEY, LEGACY_ENDPOINTS_KEY]);
   await deviceStore.clear().catch(() => {});
 }
 

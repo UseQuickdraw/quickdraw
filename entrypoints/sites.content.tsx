@@ -8,6 +8,7 @@ import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root';
 import '../src/ui/panel.css';
 import { Panel } from '../src/ui/Panel';
 import { mountToolbarButton } from '../src/ui/toolbar';
+import { preloadPanelImage } from '../src/ui/panelImage';
 import { adapterFor } from '../src/sites/registry';
 import { SITE_MATCHES } from '../src/sites/matches';
 import { PANEL_PORT, type PanelEvent } from '../src/messages';
@@ -17,6 +18,8 @@ export default defineContentScript({
   cssInjectionMode: 'ui',
   runAt: 'document_idle',
   async main(ctx) {
+    // Read and decode the background image now, while the page is still settling, so the panel shows it at once.
+    void preloadPanelImage();
     const adapter = adapterFor(new URL(location.href));
     const site = location.hostname;
 

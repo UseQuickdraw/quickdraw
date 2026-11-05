@@ -123,6 +123,11 @@ export class MarketManager {
     if (!on) this.refresh(mint);
   }
 
+  /** The coin's on-chain symbol, when it has one and is being watched. */
+  symbol(mint: string): string | null {
+    return this.byMint.get(mint)?.symbol ?? null;
+  }
+
   /** Changes whenever the mint's market state or the wallet's token account does; -1 when it isn't watched. */
   stateVersion(mint: string): number {
     return this.byMint.get(mint)?.version ?? -1;

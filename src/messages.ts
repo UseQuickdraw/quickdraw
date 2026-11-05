@@ -102,6 +102,27 @@ export const EndpointsSchema = z.object({
 });
 export type Endpoints = z.infer<typeof EndpointsSchema>;
 
+/** Telegram trade alerts. Sealed with the endpoints, never exported with settings. */
+export const NotifySchema = z.object({
+  /** From @BotFather: "123456789:AA…". */
+  botToken: z.string().regex(/^\d{5,16}:[A-Za-z0-9_-]{30,64}$/, 'not a Telegram bot token'),
+  chatId: z.number().int(),
+  /** For display: the bot's @name and who it messages. */
+  botName: z.string().max(64),
+  chatName: z.string().max(64),
+  enabled: z.boolean(),
+  events: z.object({
+    /** Trades made here landing. */
+    trades: z.boolean(),
+    /** Trades made here failing on chain or expiring. */
+    failures: z.boolean(),
+    /** Trades found on chain that weren't made here (an Axiom TP/SL, another bot). */
+    outside: z.boolean(),
+  }),
+});
+export type Notify = z.infer<typeof NotifySchema>;
+const BotToken = NotifySchema.shape.botToken;
+
 /** Requests only extension pages (options / popup) may send. */
 export const PageRequest = z.discriminatedUnion('type', [
   z.object({ type: z.literal('WALLET_GENERATE'), name: z.string().max(32).optional() }),
@@ -112,13 +133,19 @@ export const PageRequest = z.discriminatedUnion('type', [
   z.object({ type: z.literal('WALLET_EXPORT_ENCRYPTED'), password: Password, pubkey: z.string().min(32).max(44).optional() }),
   z.object({ type: z.literal('WALLET_RENAME'), pubkey: z.string().min(32).max(44), name: z.string().max(32) }),
   z.object({ type: z.literal('WALLET_REMOVE'), pubkey: z.string().min(32).max(44) }),
-  /** Deletes every wallet and the endpoints. */
+  /** Deletes every wallet, the endpoints and the Telegram bot. */
   z.object({ type: z.literal('WALLET_DELETE') }),
   /** One-time conversion of a wallet created with the old password version. */
   z.object({ type: z.literal('CONVERT_WALLET'), password: Password }),
   z.object({ type: z.literal('SET_ENDPOINTS'), endpoints: EndpointsSchema }),
   z.object({ type: z.literal('GET_ENDPOINTS') }),
   z.object({ type: z.literal('TEST_ENDPOINTS'), endpoints: EndpointsSchema }),
+  z.object({ type: z.literal('GET_NOTIFY') }),
+  /** Null disconnects the bot. */
+  z.object({ type: z.literal('SET_NOTIFY'), notify: NotifySchema.nullable() }),
+  /** Finds the bot's name and the chat that last messaged it. */
+  z.object({ type: z.literal('NOTIFY_CONNECT'), botToken: BotToken }),
+  z.object({ type: z.literal('NOTIFY_TEST') }),
   z.object({ type: z.literal('SAVE_SETTINGS'), settings: SettingsSchema }),
   z.object({ type: z.literal('SET_ONBOARDED') }),
   z.object({ type: z.literal('GET_TRADE_LOG') }),
@@ -159,6 +186,8 @@ export interface WalletState {
   /** Setup was skipped: the panel works as a clickable preview with no wallet or RPC. */
   preview: boolean;
   settings: Settings;
+  /** 1% of all volume traded here, across every wallet: the panel's "Saved" line before a coin has loaded. */
+  feesSavedSol: number;
 }
 
 export interface EndpointTestResult {
