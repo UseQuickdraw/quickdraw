@@ -385,6 +385,7 @@ export class TradeEngine {
     const rawTx = Buffer.from(built.tx.serialize()).toString('base64');
     let markSent!: (at: number) => void;
     const sent = new Promise<number>((r) => (markSent = r));
+    let fallback: string | undefined;
     this.lastSendAt = now();
     const done = sendAndConfirm({
       conn: this.conn,
@@ -394,7 +395,10 @@ export class TradeEngine {
       rawTx,
       signature,
       lastValidBlockHeight: bh.lastValidBlockHeight,
-      onSent: (at) => markSent(at),
+      onSent: (at, why) => {
+        fallback = why;
+        markSent(at);
+      },
     });
     this.pending.add(done);
     // A sell empties the holding the moment it lands, but is booked only once confirmed and read back: hold the PnL till then.
@@ -443,8 +447,8 @@ export class TradeEngine {
     return {
       kind: 'sent',
       signature,
-      text: `${what} sent (${req.tier === 'fast' ? 'Fast' : 'Eco'}) · waiting to land…`,
-      detail: `${describePlan(market, plan)} · ${buildTiming} · click→sent ${Math.round(sentAt - req.clickedAt)} ms`,
+      text: `${what} sent${fallback ? ' via your RPC' : ''} (${req.tier === 'fast' ? 'Fast' : 'Eco'}) · waiting to land…`,
+      detail: `${fallback ? `${fallback[0]!.toUpperCase()}${fallback.slice(1)}. ` : ''}${describePlan(market, plan)} · ${buildTiming} · click→sent ${Math.round(sentAt - req.clickedAt)} ms`,
     };
   }
 

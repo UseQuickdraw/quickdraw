@@ -115,8 +115,14 @@ describe('sendAndConfirm', () => {
   it('sends through the fallback when the sender fails on its side, and rebroadcasts there', async () => {
     const f = fakeSend((n) => (n === 1 ? new Response('upstream error', { status: 500 }) : ok()));
     const { conn } = fakeRpc({ statuses: (n) => (n >= 6 ? { slot: 11, confirmationStatus: 'confirmed', err: null } : null) });
-    const out = await sendAndConfirm({ conn, sendUrl: 'https://send.example', fallbackUrl: 'https://rpc.example', rawTx: 'AAAA', signature: 'S7', lastValidBlockHeight: 1_000 });
+    let why: string | undefined;
+    const out = await sendAndConfirm({
+      conn, sendUrl: 'https://send.example', fallbackUrl: 'https://rpc.example', rawTx: 'AAAA', signature: 'S7', lastValidBlockHeight: 1_000,
+      onSent: (_at, fallback) => (why = fallback),
+    });
     expect(out.status).toBe('confirmed');
+    // The pop-up says why it went the other way, in plain words plus the sender's own.
+    expect(why).toBe('the sender failed (its server hit an error: upstream error (HTTP 500)), so it went through your RPC');
     const urls = f.mock.calls.map((c) => String((c as unknown[])[0]));
     expect(urls[0]).toBe('https://send.example');
     // Everything after the 500 goes to the fallback, always the same signed bytes.
@@ -134,7 +140,7 @@ describe('sendAndConfirm', () => {
 
   it('shows the reason a plain-text error page gives', async () => {
     fakeSend(() => new Response('<html>  Bad   tip account </html>', { status: 400 }));
-    await expect(sendRawTransaction('https://send.example', 'AAAA')).rejects.toThrow('<html> Bad tip account </html> (HTTP 400)');
+    await expect(sendRawTransaction('https://send.example', 'AAAA')).rejects.toThrow('it rejected the request: Bad tip account (HTTP 400)');
   });
 
   it('keeps watching after a network error, since the send may have gone out', async () => {
@@ -308,7 +314,7 @@ describe('TradeEngine live sending', () => {
     const view = await engine.markets.watch(pool.address, 1);
     await expect(
       engine.trade({ side: 'buy', amount: 0.05, presetIndex: null, mint: view.mint, tier: 'fast', clickedAt: Date.now(), tabId: 1 }, settings, activeProfile(settings)),
-    ).rejects.toThrow(/The sender refused the transaction: Rate limited/);
+    ).rejects.toThrow(/The sender refused the transaction: it rate-limited the send: Rate limited \(HTTP 429\)/);
     await vi.waitFor(() => expect(log[0]?.status).toBe('rejected'));
     engine.dispose();
   });

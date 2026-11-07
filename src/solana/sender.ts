@@ -53,6 +53,24 @@ export class SendRejectedError extends Error {
   }
 }
 
+/** A few plain words on what an HTTP error from a send endpoint means. */
+export function sendStatusReason(status: number): string {
+  if (status === 400) return 'it rejected the request';
+  if (status === 401 || status === 403) return 'it rejected the API key, or blocks this connection';
+  if (status === 404) return "that address isn't a send endpoint";
+  if (status === 413) return 'the transaction was too large for it';
+  if (status === 429) return 'it rate-limited the send';
+  if (status === 500) return 'its server hit an error';
+  if (status === 502 || status === 504) return 'its gateway lost its upstream';
+  if (status === 503) return "it's down or overloaded";
+  return status >= 500 ? 'its server had a problem' : `HTTP ${status}`;
+}
+
+/** The endpoint's own words, if it gave any: the JSON-RPC error, or the text of an error page (shortened). */
+function endpointSaid(body: { error?: { message?: string } } | null, text: string): string {
+  return (body?.error?.message ?? text.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
 /** POSTs a signed transaction. Returns the signature, throws SendRejectedError on refusal. */
 export async function sendRawTransaction(url: string, base64Tx: string, signal?: AbortSignal): Promise<string> {
   // A 429 wasn't forwarded, so it's resent until it is (the signature is the same either way).
@@ -77,8 +95,10 @@ export async function sendRawTransaction(url: string, base64Tx: string, signal?:
     }
   })();
   if (!res.ok || !body || body.error || typeof body.result !== 'string') {
-    const said = body?.error?.message ?? text.replace(/\s+/g, ' ').trim().slice(0, 160);
-    throw new SendRejectedError(said ? `${said} (HTTP ${res.status})` : `HTTP ${res.status}`, res.status);
+    const said = endpointSaid(body, text);
+    // An error the endpoint answered with (HTTP 200): its words say it all. Otherwise, what the status means, then its words.
+    if (res.ok) throw new SendRejectedError(said || 'it returned no signature', res.status);
+    throw new SendRejectedError(`${sendStatusReason(res.status)}${said ? `: ${said}` : ''} (HTTP ${res.status})`, res.status);
   }
   return body.result;
 }

@@ -18,8 +18,8 @@ export interface SendRequest {
   signature: string;
   /** From the blockhash the transaction was built with. */
   lastValidBlockHeight: number;
-  /** Called once the first send was accepted (or may have been). */
-  onSent?(at: number): void;
+  /** Called once the first send was accepted (or may have been); `fallback` says why it went through the fallback, if it did. */
+  onSent?(at: number, fallback?: string): void;
 }
 
 export interface SendOutcome {
@@ -65,6 +65,7 @@ export async function sendAndConfirm(req: SendRequest): Promise<SendOutcome> {
     rebroadcasts,
     error: { kind: 'unknown', message: `${via} refused the transaction: ${e.message}` },
   });
+  let fallback: string | undefined;
 
   try {
     await sendRawTransaction(sendUrl, rawTx);
@@ -75,6 +76,7 @@ export async function sendAndConfirm(req: SendRequest): Promise<SendOutcome> {
     // transaction can't buy twice, so send it through the fallback too, then keep watching (and rebroadcasting).
     if (e instanceof SendRejectedError && req.fallbackUrl) {
       target = req.fallbackUrl;
+      fallback = `the sender failed (${e.message}), so it went through your RPC`;
       try {
         await sendRawTransaction(target, rawTx);
       } catch (e2) {
@@ -83,7 +85,7 @@ export async function sendAndConfirm(req: SendRequest): Promise<SendOutcome> {
     }
   }
   sentAt = now();
-  req.onSent?.(sentAt);
+  req.onSent?.(sentAt, fallback);
 
   // Boxed: the WebSocket callbacks set it, which TS narrowing can't follow.
   const box: { settled: { slot?: number; err?: TransactionError | null } | null; inBlockAt?: number } = { settled: null };
