@@ -18,16 +18,22 @@ export interface Fixture {
   accounts: Record<string, RawAccount | null>;
   /** getTokenAccountsByOwner results, keyed `${owner}:${programId}`. */
   tokenAccountsByOwner: Record<string, string[]>;
+  /**
+   * Trades simulated on mainnet whose result matched the quote: the market's
+   * accounts as quoted (applied over the fixture like subscription updates),
+   * the raw amount in, and what landed.
+   */
+  checks?: { side: 'buy' | 'sell'; amountIn: string; out: string; accounts: Record<string, RawAccount> }[];
 }
 
-const toRaw = (i: AccountInfo<Buffer>): RawAccount => ({
+export const toRaw = (i: AccountInfo<Buffer>): RawAccount => ({
   owner: i.owner.toBase58(),
   lamports: i.lamports,
   data: Buffer.from(i.data).toString('base64'),
   executable: i.executable,
 });
 
-const fromRaw = (r: RawAccount): AccountInfo<Buffer> => ({
+export const fromRaw = (r: RawAccount): AccountInfo<Buffer> => ({
   owner: new PublicKey(r.owner),
   lamports: r.lamports,
   data: Buffer.from(r.data, 'base64'),

@@ -23,6 +23,10 @@ export type CuKey = `${VenueId}:${CuOp}`;
  *   via an xStock on a Raydium CLMM buy+ata 162k, sell 144-145k
  *   Raydium CPMM via an xStock on a Raydium CLMM buy+ata 133k, sell 108-109k
  *   Raydium CPMM buy+ata 52k, sell 44-46k; via STONK buy+ata 107k, sell 89-90k
+ *   Meteora bonding curve buy+ata 52k, sell 45-46k; via USDC buy+ata 110k, sell 86-87k
+ *   Meteora DAMM v2 buy+ata 40-46k, sell 23-34k; via USDC (compounding, Token-2022 coin) buy+ata 106k, sell 87k
+ *   (tests/live-meteora.test.ts, 2026-11-03). A curve buy pays per segment it
+ *   crosses, so the curve keeps extra room for big buys.
  */
 // Raised where a fresh burner needed more: its first trade also creates its WSOL
 // account (and the coin's, and a routed coin's quote token's). Measured from a
@@ -76,6 +80,23 @@ export const DEFAULT_CU: Record<CuKey, number> = {
   'CLMM_ROUTED:buy+ata': 240_000,
   'CLMM_ROUTED:sell': 200_000,
   'CLMM_ROUTED:sell+close': 205_000,
+  // Meteora bonding curves and DAMM v2 pools, direct and routed.
+  'METEORA_DBC:buy': 85_000,
+  'METEORA_DBC:buy+ata': 95_000,
+  'METEORA_DBC:sell': 75_000,
+  'METEORA_DBC:sell+close': 75_000,
+  'METEORA_DBC_ROUTED:buy': 150_000,
+  'METEORA_DBC_ROUTED:buy+ata': 160_000,
+  'METEORA_DBC_ROUTED:sell': 130_000,
+  'METEORA_DBC_ROUTED:sell+close': 135_000,
+  'METEORA_DAMM_V2:buy': 60_000,
+  'METEORA_DAMM_V2:buy+ata': 70_000, // a fresh burner's first buy used 50.5k (tests/live-fresh-wallet.test.ts, 2026-11-08)
+  'METEORA_DAMM_V2:sell': 50_000,
+  'METEORA_DAMM_V2:sell+close': 52_000,
+  'METEORA_DAMM_V2_ROUTED:buy': 145_000,
+  'METEORA_DAMM_V2_ROUTED:buy+ata': 150_000,
+  'METEORA_DAMM_V2_ROUTED:sell': 125_000,
+  'METEORA_DAMM_V2_ROUTED:sell+close': 130_000,
 };
 
 const HEADROOM = 1.15;

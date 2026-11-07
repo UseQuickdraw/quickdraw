@@ -43,6 +43,10 @@ export const SWAP = {
   pumpWrappedSellV6: () => Buffer.from([192, 0]),
   /** 40 RaydiumClmmV2 */
   raydiumClmmV2: () => Buffer.from([40]),
+  /** 77 MeteoraDammV2 */
+  meteoraDammV2: () => Buffer.from([77]),
+  /** 78 MeteoraDynamicBondingCurveSwap */
+  meteoraDbc: () => Buffer.from([78]),
 };
 
 export interface RouteLeg {

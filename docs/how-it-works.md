@@ -17,6 +17,8 @@ The panel passes the worker whatever address the page shows. The worker resolves
 | Raydium CPMM (graduated coins, SOL-paired) | `swap_base_input` (exact SOL in, min tokens out) | `swap_base_input` (exact tokens in, min SOL out) |
 | Raydium AMM v4 (coins that graduated before PumpSwap, and older SOL pairs) | `swap_base_in_v2` (exact SOL in, min tokens out) | `swap_base_in_v2` (exact tokens in, min SOL out) |
 | A coin's own Raydium CLMM or Orca Whirlpool pool, against SOL or USDC | Jupiter `route_v2` through that pool | the same route reversed |
+| Meteora Dynamic Bonding Curve (SOL-paired curves: Bags, Believe, Jupiter Studio�) | `swap2` exact in (a buy past the end of the curve fills what's left and returns the rest of the SOL) | `swap2` exact in |
+| Meteora DAMM v2 (graduated bonding-curve coins and other SOL pools) | `swap2` exact in | `swap2` exact in |
 | Any of the above priced in another token | Jupiter `route_v2`: SOL → that token, then that token → the coin | the same route reversed |
 
 Coins priced in another token are routed through SOL in one transaction:
@@ -33,11 +35,13 @@ Raydium CLMM pools with **dynamic fees** work too. Their fee rises with recent v
 
 The routes are built locally as Jupiter `route_v2` instructions from Jupiter's on-chain IDL. **No Jupiter API is called.** Jupiter hands each leg exactly what the previous one produced, so nothing is left behind in between, and enforces the final minimum. The pools are found from their addresses with no API, and priced with ports of each program's own swap maths, so quotes match the chain to the unit.
 
+Meteora's bonding curves and DAMM v2 pools are priced from ports of the programs' own maths (MeteoraAg `dynamic-bonding-curve` and `damm-v2`): the curve's segments in square-root price, fixed, time-scheduled, market-cap-scheduled and rate-limited base fees, the volatility fee, fees taken from the input or the output as the pool is set up, and DAMM v2's compounding (constant-product) pools. A graduated curve coin's DAMM v2 pool is found by address: it derives from the two mints and one of the seven configs Meteora's curves migrate into, so reading those few addresses finds it even on RPCs that refuse program scans. Other coins opened from their mint are found by a filtered program scan of each program, since their pool addresses derive from a config the page doesn't show; a page that shows the curve or pool skips the scan. When a curve fills, the panel follows the coin to the DAMM v2 pool it migrates to.
+
 A curve that completes between clicks is followed to its new pool before quoting. A sell that would need more SOL than a curve holds is refused before signing.
 
 ### Transfer fees ("tax")
 
-Coins with a Token-2022 transfer fee work: the fee comes off what you receive, and the slippage minimum applies to that amount. Their token account is left open after a full sell, because Token-2022 won't close an account holding withheld fees. A quote token with a transfer fee (the PreStocks such as NEURALINK charge 1%) is priced on PumpSwap pools and pump.fun curves; LaunchLab and Raydium CPMM still refuse one.
+Coins with a Token-2022 transfer fee work: the fee comes off what you receive, and the slippage minimum applies to that amount. Their token account is left open after a full sell, because Token-2022 won't close an account holding withheld fees. A quote token with a transfer fee (the PreStocks such as NEURALINK charge 1%) is priced on PumpSwap pools and pump.fun curves; LaunchLab, Raydium CPMM and Meteora still refuse one.
 
 ### Fitting long routes in one transaction
 
@@ -47,8 +51,9 @@ Routes through several pools are too big for one transaction without **address l
 
 Each of these shows a message saying so:
 
-- coins paired with a token that has no PumpSwap pool and no Raydium CLMM or Orca pool against SOL or USDC (Meteora-only tokens, for example);
-- Raydium AMM v4 pools that are paired with another token or still trade through OpenBook;
+- coins paired with a token that has no PumpSwap pool and no Raydium CLMM or Orca pool against SOL or USDC (tokens whose only liquidity is on Meteora DLMM, for example);
+- coins that graduated from a Meteora curve to a DAMM v1 pool, and Raydium AMM v4 pools that are paired with another token or still trade through OpenBook;
+- Meteora DLMM pools, Meteora curves whose coin has a transfer hook, and routed trades through a Meteora curve or pool during its launch rate limit (direct SOL trades work);
 - pump.fun cashback curves priced in a token other than SOL;
 - the rarer fixed-price and linear curves;
 - Raydium CLMM trades that would reach resting limit orders, Orca pools with adaptive fees, and quote tokens with a transfer hook.

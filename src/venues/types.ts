@@ -76,12 +76,12 @@ export interface VenueAdapter {
 
 /** Curve venues whose coins move to a pool when the curve completes: the app re-resolves them to follow. */
 export function migratesOnComplete(venue: string): boolean {
-  return venue.startsWith('PUMP_CURVE') || venue.startsWith('LAUNCHLAB');
+  return venue.startsWith('PUMP_CURVE') || venue.startsWith('LAUNCHLAB') || venue.startsWith('METEORA_DBC');
 }
 
 /** The pool a completed curve's coin moves to, for messages. */
 export function migrationTarget(venue: string): string {
-  return venue.startsWith('LAUNCHLAB') ? 'Raydium' : 'PumpSwap';
+  return venue.startsWith('METEORA_DBC') ? 'Meteora DAMM v2' : venue.startsWith('LAUNCHLAB') ? 'Raydium' : 'PumpSwap';
 }
 
 export class VenueError extends Error {

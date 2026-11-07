@@ -196,7 +196,7 @@ export interface EndpointTestResult {
   sender: { ok: boolean; ms?: number; error?: string };
 }
 
-export type Venue = 'PUMP_CURVE' | 'PUMP_CURVE_ROUTED' | 'PUMPSWAP' | 'PUMPSWAP_ROUTED' | 'LAUNCHLAB' | 'LAUNCHLAB_ROUTED' | 'RAYDIUM_CPMM' | 'RAYDIUM_CPMM_ROUTED' | 'CLMM_ROUTED' | 'RAYDIUM_AMM' | 'UNSUPPORTED';
+export type Venue = 'PUMP_CURVE' | 'PUMP_CURVE_ROUTED' | 'PUMPSWAP' | 'PUMPSWAP_ROUTED' | 'LAUNCHLAB' | 'LAUNCHLAB_ROUTED' | 'RAYDIUM_CPMM' | 'RAYDIUM_CPMM_ROUTED' | 'CLMM_ROUTED' | 'RAYDIUM_AMM' | 'METEORA_DBC' | 'METEORA_DBC_ROUTED' | 'METEORA_DAMM_V2' | 'METEORA_DAMM_V2_ROUTED' | 'UNSUPPORTED';
 
 /** What the panel shows for the token it's on. Numbers are display-only. */
 export interface MarketView {

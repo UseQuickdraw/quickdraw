@@ -6,14 +6,18 @@ import { launchLab } from './launchLab';
 import { raydiumCpmm } from './raydiumCpmm';
 import { clmmPool } from './clmmPool';
 import { raydiumAmm } from './raydiumAmm';
+import { meteoraDbc } from './meteoraDbc';
+import { meteoraDammV2 } from './meteoraDammV2';
 import { VenueError, type Market, type OpenHint, type VenueAdapter } from './types';
 
 /**
- * Venues in resolution priority order: a live curve wins over a pool, and an
+ * Venues in resolution priority order: a live curve wins over a pool, and a
  * older coin's Raydium AMM v4 SOL pool (found by a program scan, and usually
- * its main pool) comes before its own CLMM/Orca pools, which come last.
+ * its main pool) comes before its own CLMM/Orca pools. Meteora
+ * comes last: a coin opened from its mint is found there by program scans,
+ * which the others shouldn't wait on (a page showing the curve or pool skips them).
  */
-export const VENUES: VenueAdapter[] = [pumpCurve, pumpSwap, launchLab, raydiumCpmm, raydiumAmm, clmmPool];
+export const VENUES: VenueAdapter[] = [pumpCurve, pumpSwap, launchLab, raydiumCpmm, raydiumAmm, clmmPool, meteoraDbc, meteoraDammV2];
 
 export function venueAllowlist(): string[] {
   return [...new Set(VENUES.flatMap((v) => v.allowedPrograms()))];
@@ -34,5 +38,5 @@ export async function openMarket(conn: Connection, mint: MintInfo, hint?: OpenHi
     const m = await v.open(conn, mint, hint?.venue === v.id ? hint : undefined);
     if (m) return m;
   }
-  throw new VenueError('Venue not supported yet (only pump.fun, PumpSwap, Raydium LaunchLab, Raydium CPMM, CLMM and AMM v4, and Orca)', 'UNSUPPORTED');
+  throw new VenueError('Venue not supported yet (only pump.fun, PumpSwap, Raydium LaunchLab, Raydium CPMM, CLMM and AMM v4, Orca, and the Meteora bonding curve and DAMM v2)', 'UNSUPPORTED');
 }

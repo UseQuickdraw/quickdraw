@@ -37,6 +37,12 @@ const FRIENDLY: Record<string, Pick<DecodedError, 'message' | 'kind'>> = {
   PoolFunding: { kind: 'program', message: 'This LaunchLab curve is still filling.' },
   // Raydium CPMM (ExceededSlippage shared)
   NotApproved: { kind: 'program', message: 'Swaps are not open on this Raydium pool.' },
+  // Meteora bonding curve and DAMM v2 (ExceededSlippage shared)
+  PoolIsCompleted: { kind: 'curve_complete', message: 'The Meteora curve just completed (migrating to DAMM v2). Click again.' },
+  InsufficientLiquidity: { kind: 'curve_complete', message: 'Not enough left on the curve for this trade. Try a smaller amount.' },
+  PriceRangeViolation: { kind: 'program', message: 'Trade is larger than this Meteora pool can fill.' },
+  PoolDisabled: { kind: 'program', message: 'Swaps are disabled on this Meteora pool.' },
+  FailToValidateSingleSwapInstruction: { kind: 'program', message: 'This Meteora pool takes one swap per transaction during its launch window.' },
 };
 
 function fromAnchorLogs(logs: readonly string[]): DecodedError | null {

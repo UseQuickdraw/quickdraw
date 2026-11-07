@@ -56,6 +56,7 @@ pump.fun has no reliable devnet, so markets are tested against mainnet. Unit tes
 | `tests/live-ammv4.test.ts` | A coin that graduated to a Raydium AMM v4 pool, with the coin on the pool's "pc" side (FRIC) |
 | `tests/live-fresh-wallet.test.ts` | Compute use of a fresh burner (no WSOL account) on every market in the fixtures, against the starting limits |
 | `tests/live-dynamicfee.test.ts` | A coin routed through a dynamic-fee CLMM pool (HAMMER, priced in DJT) |
+| `tests/live-meteora.test.ts` | Meteora bonding curves (SOL-paired, and USDC-paired through a route) and DAMM v2 pools: a graduated curve coin (opened from its mint and its old curve), a coin as token B with fees on the input, and a compounding USDC pool with a fee schedule, a volatility fee and a transfer-fee coin |
 
 ```bash
 LIVE=1 npx vitest run tests/live-sim.test.ts

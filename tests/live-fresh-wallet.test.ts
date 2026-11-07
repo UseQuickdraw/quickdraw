@@ -33,6 +33,8 @@ const FRESH_BUYER = new PublicKey(process.env.LIVE_FRESH_BUYER ?? 'GThUX1Atko4tq
 const EXTRA = {
   'clmm-retard': '6LdWaws4uwBi8CNH2jHUUSJHgZ6A7GwCKoBaKL1BhfKN',
   'dynamicfee-hammer': '7PYYkprnTGSbDRjn59416qKTNbSUTeUY2wUrvZsgpump',
+  // A Bags coin graduated to DAMM v2, opened from its old curve (what Axiom's URL can show).
+  'damm-trumpcoin': '5xXUYpFZTAxzzACGMmxbHv2MRomjqgXHkboxDuo16hiu',
 };
 
 const wsolOf = (owner: PublicKey) => getAssociatedTokenAddressSync(NATIVE_MINT, owner, true);

@@ -48,7 +48,7 @@ Quickdraw is a **browser extension** for Chrome, Brave, Edge and other Chromium 
 - Fully adjustable look: rows, button shape, colours, a background image, pop-up position and duration, sounds.
 - Dry run mode that simulates every trade on chain without sending it.
 
-**Markets:** pump.fun curves and PumpSwap, Raydium LaunchLab (letsbonk.fun, stonk.fun…), CPMM and AMM v4, Raydium CLMM (including dynamic-fee pools) and Orca Whirlpool pools, coins with a Token-2022 transfer fee, and coins priced in another token (STONK, an xStock, USDC, another pump coin), routed through SOL in one transaction. See [supported markets](docs/how-it-works.md#supported-markets).
+**Markets:** pump.fun curves and PumpSwap, Raydium LaunchLab (letsbonk.fun, stonk.fun…), CPMM and AMM v4, Raydium CLMM (including dynamic-fee pools) and Orca Whirlpool pools, Meteora bonding curves (Bags, Believe, Jupiter Studio�) and DAMM v2 pools, coins with a Token-2022 transfer fee, and coins priced in another token (STONK, an xStock, USDC, another pump coin), routed through SOL in one transaction. See [supported markets](docs/how-it-works.md#supported-markets).
 
 ## Install
 
