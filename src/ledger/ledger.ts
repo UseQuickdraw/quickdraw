@@ -156,8 +156,10 @@ export interface Pnl {
   pnlLamports: number;
   /** pnl / bought, in percent; null before any buy. */
   pnlPct: number | null;
-  /** pnl minus fees and tips paid. */
+  /** pnl minus the network fees, priority fees and tips paid (failed trades' fees too): what the panel shows. */
   netLamports: number;
+  /** net / bought, in percent; null before any buy. */
+  netPct: number | null;
 }
 
 /**
@@ -169,12 +171,9 @@ export function pnl(p: Position, heldRaw: bigint, lamportsPerRawToken: number): 
   const counted = heldRaw < BigInt(p.tokensRaw) ? heldRaw : BigInt(p.tokensRaw);
   const valueLamports = Math.round(Number(counted) * lamportsPerRawToken);
   const pnlLamports = valueLamports + p.soldLamports - p.boughtLamports;
-  return {
-    valueLamports,
-    pnlLamports,
-    pnlPct: p.boughtLamports > 0 ? (pnlLamports / p.boughtLamports) * 100 : null,
-    netLamports: pnlLamports - p.feesLamports - p.tipsLamports,
-  };
+  const netLamports = pnlLamports - p.feesLamports - p.tipsLamports;
+  const pct = (x: number) => (p.boughtLamports > 0 ? (x / p.boughtLamports) * 100 : null);
+  return { valueLamports, pnlLamports, pnlPct: pct(pnlLamports), netLamports, netPct: pct(netLamports) };
 }
 
 /** The platform fee these trades would have paid elsewhere, in basis points of volume. */

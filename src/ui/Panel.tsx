@@ -1113,7 +1113,7 @@ You get about ${fmtSol(Math.max(0, previewQuote.netSol))} SOL: ${fmtSol(previewQ
             <span title="Value of what you hold, at the current price">{amount(holdingSol ?? 0)}</span>
             <span
               class={(market?.pnlSol ?? 0) >= 0 ? 'it-buy-c' : 'it-sell-c'}
-              title="Holding value + sold − bought, for trades made with Quickdraw (fees and tips not included)"
+              title="Holding value + sold − bought − the network fees, priority fees and tips paid, for trades made with Quickdraw"
             >
               {amount(Math.abs(market?.pnlSol ?? 0), (market?.pnlSol ?? 0) >= 0 ? '+' : '−')}({(market?.pnlPct ?? 0) >= 0 ? '+' : '−'}
               {fmtPct(Math.abs(market?.pnlPct ?? 0))})

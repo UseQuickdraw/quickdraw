@@ -235,9 +235,9 @@ describe('TradeEngine live sending', () => {
     expect(pos).toMatchObject({ boughtLamports: SPEND, feesLamports: FEE, tipsLamports: TIP, rentLamports: RENT, tokensRaw: '741371611' });
     expect(engine.ledger.feesAvoidedLamports()).toBe(SPEND / 100);
     await vi.waitFor(() => expect(toasts.at(-1)?.text).toMatch(/^Bought .* for 0\.05 SOL$/));
-    // The panel was pushed a view with the position (the wallet holds 0 here, so PnL = -bought).
+    // The panel was pushed a view with the position (the wallet holds 0 here, so PnL = -bought, less the fee and tip paid).
     await vi.waitFor(() => expect(views.at(-1)?.boughtSol).toBe(0.05));
-    expect(views.at(-1)?.pnlSol).toBe(-0.05);
+    expect(views.at(-1)?.pnlSol).toBe(-(SPEND + FEE + TIP) / 1e9);
     expect(views.at(-1)?.feesSavedSol).toBe(0.0005);
     engine.dispose();
   });

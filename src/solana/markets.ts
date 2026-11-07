@@ -309,8 +309,9 @@ export class MarketManager {
       solBalance: this.solLamports_ === null ? null : this.solLamports_ / LAMPORTS_PER_SOL,
       boughtSol: pos ? pos.boughtLamports / LAMPORTS_PER_SOL : null,
       soldSol: pos ? pos.soldLamports / LAMPORTS_PER_SOL : null,
-      pnlSol: p ? p.pnlLamports / LAMPORTS_PER_SOL : null,
-      pnlPct: p?.pnlPct ?? null,
+      // After the network fees, priority fees and tips paid, so it's what the wallet actually made.
+      pnlSol: p ? p.netLamports / LAMPORTS_PER_SOL : null,
+      pnlPct: p?.netPct ?? null,
       feesSavedSol: (this.ledger?.feesAvoidedLamports() ?? 0) / LAMPORTS_PER_SOL,
       symbol: e.symbol,
       ...this.extras?.(m),

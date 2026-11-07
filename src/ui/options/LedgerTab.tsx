@@ -80,7 +80,8 @@ export function LedgerTab() {
             </thead>
             <tbody>
               {positions.map((p) => {
-                const realized = p.soldLamports - p.boughtLamports;
+                // After the network fees, priority fees and tips, like the panel's PnL.
+                const realized = p.soldLamports - p.boughtLamports - p.feesLamports - p.tipsLamports;
                 return (
                   <tr key={p.mint} style={{ borderTop: '1px solid var(--border)' }}>
                     <td>
@@ -90,7 +91,7 @@ export function LedgerTab() {
                     </td>
                     <td>{sol(p.boughtLamports)}</td>
                     <td>{sol(p.soldLamports)}</td>
-                    <td class={realized >= 0 ? 'ok' : 'err'} title="Only meaningful once the position is closed; open positions show unrealized PnL in the panel">
+                    <td class={realized >= 0 ? 'ok' : 'err'} title="Sold − bought − fees and tips. Only meaningful once the position is closed; open positions show unrealized PnL in the panel">
                       {realized >= 0 ? '+' : '−'}
                       {sol(Math.abs(realized))}
                     </td>

@@ -70,7 +70,7 @@ Compute-unit limits start from mainnet measurements (`DEFAULT_CU` in `src/solana
 Every trade that lands through Quickdraw is read back from chain and booked per coin. Failed transactions are booked too, since they still pay the network fee.
 
 - **Bought / sold:** the SOL that went into or came out of the trade itself. The network fee, the tip and token-account rent are tracked separately, so bought + fee + tip + rent equals the wallet change Solscan shows.
-- **PnL** = value of what you hold at the live price + sold − bought, in SOL and %. Only coins bought with Quickdraw count; tokens bought elsewhere have no cost basis here.
+- **PnL** = value of what you hold at the live price + sold − bought − the network fees, priority fees and tips paid (failed trades' fees included), in SOL and % of what you bought. Only coins bought with Quickdraw count; tokens bought elsewhere have no cost basis here.
 - **Saved vs a 1% platform fee:** 1% of all the volume you've traded here.
 - **Options → Ledger** lists positions and exports every fill as CSV, with a latency log below it (click → sent, sent → landed, slot, rebroadcasts).
 

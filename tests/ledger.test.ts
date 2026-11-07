@@ -140,6 +140,8 @@ describe('positions', () => {
     expect(r.pnlLamports).toBe(20_000_000);
     expect(r.pnlPct).toBeCloseTo(13.333, 2);
     expect(r.netLamports).toBe(20_000_000 - 4 * FEE - 4 * TIP);
+    // The panel's %: net of fees and tips, against what was bought.
+    expect(r.netPct).toBeCloseTo(((20_000_000 - 4 * FEE - 4 * TIP) / 150_000_000) * 100, 6);
   });
 
   it('records each signature once', () => {
