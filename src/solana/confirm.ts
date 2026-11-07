@@ -8,6 +8,11 @@ import { SendRejectedError, sendRawTransaction } from './sender';
 export interface SendRequest {
   conn: Connection;
   sendUrl: string;
+  /**
+   * Where to send instead when `sendUrl` fails on its side (HTTP 5xx): the
+   * user's own RPC. Unset when that's what `sendUrl` already is.
+   */
+  fallbackUrl?: string;
   /** Base64 of the signed, serialized transaction. */
   rawTx: string;
   signature: string;
@@ -51,20 +56,31 @@ export async function sendAndConfirm(req: SendRequest): Promise<SendOutcome> {
   const { conn, sendUrl, rawTx, signature } = req;
   let rebroadcasts = 0;
   let sentAt: number | undefined;
+  // Where rebroadcasts go: the fallback once the main endpoint has failed on its side.
+  let target = sendUrl;
+  const refused = (e: SendRejectedError, via: string): SendOutcome => ({
+    status: 'rejected',
+    signature,
+    settledAt: now(),
+    rebroadcasts,
+    error: { kind: 'unknown', message: `${via} refused the transaction: ${e.message}` },
+  });
 
   try {
     await sendRawTransaction(sendUrl, rawTx);
   } catch (e) {
-    if (e instanceof SendRejectedError) {
-      return {
-        status: 'rejected',
-        signature,
-        settledAt: now(),
-        rebroadcasts,
-        error: { kind: 'unknown', message: `Send refused: ${e.message}` },
-      };
+    // A 4xx or a JSON-RPC error is a real refusal: nothing went out.
+    if (e instanceof SendRejectedError && e.status < 500) return refused(e, req.fallbackUrl ? 'The sender' : 'Your RPC');
+    // A server error (5xx) or a dropped connection: it may or may not have gone out. Resending the same signed
+    // transaction can't buy twice, so send it through the fallback too, then keep watching (and rebroadcasting).
+    if (e instanceof SendRejectedError && req.fallbackUrl) {
+      target = req.fallbackUrl;
+      try {
+        await sendRawTransaction(target, rawTx);
+      } catch (e2) {
+        if (e2 instanceof SendRejectedError && e2.status < 500) return refused(e2, 'Your RPC');
+      }
     }
-    // Network error: it may have gone out. Keep watching (and rebroadcasting).
   }
   sentAt = now();
   req.onSent?.(sentAt);
@@ -133,7 +149,7 @@ export async function sendAndConfirm(req: SendRequest): Promise<SendOutcome> {
         lastRebroadcast = t;
         rebroadcasts++;
         // Same bytes, same signature. Refusals here are expected ("already processed").
-        void sendRawTransaction(sendUrl, rawTx).catch(() => {});
+        void sendRawTransaction(target, rawTx).catch(() => {});
       }
     }
   } finally {

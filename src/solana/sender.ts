@@ -67,9 +67,18 @@ export async function sendRawTransaction(url: string, base64Tx: string, signal?:
     }),
     signal,
   });
-  const body = (await res.json().catch(() => null)) as { result?: string; error?: { message?: string } } | null;
+  const text = await res.text().catch(() => '');
+  // Not JSON: an error page or a plain-text reason, shown as is (shortened).
+  const body = ((): { result?: string; error?: { message?: string } } | null => {
+    try {
+      return JSON.parse(text) as { result?: string; error?: { message?: string } };
+    } catch {
+      return null;
+    }
+  })();
   if (!res.ok || !body || body.error || typeof body.result !== 'string') {
-    throw new SendRejectedError(body?.error?.message ?? `Send refused (HTTP ${res.status})`, res.status);
+    const said = body?.error?.message ?? text.replace(/\s+/g, ' ').trim().slice(0, 160);
+    throw new SendRejectedError(said ? `${said} (HTTP ${res.status})` : `HTTP ${res.status}`, res.status);
   }
   return body.result;
 }

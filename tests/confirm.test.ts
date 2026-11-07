@@ -1,4 +1,5 @@
 import '../src/polyfills';
+import { sendRawTransaction } from '../src/solana/sender';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Keypair, PublicKey, VersionedTransaction, type Connection, type SignatureResult } from '@solana/web3.js';
 import bs58 from 'bs58';
@@ -109,6 +110,31 @@ describe('sendAndConfirm', () => {
     expect(out.status).toBe('rejected');
     expect(out.error?.message).toMatch(/Missing tip/);
     expect(raw.getSignatureStatuses).not.toHaveBeenCalled();
+  });
+
+  it('sends through the fallback when the sender fails on its side, and rebroadcasts there', async () => {
+    const f = fakeSend((n) => (n === 1 ? new Response('upstream error', { status: 500 }) : ok()));
+    const { conn } = fakeRpc({ statuses: (n) => (n >= 6 ? { slot: 11, confirmationStatus: 'confirmed', err: null } : null) });
+    const out = await sendAndConfirm({ conn, sendUrl: 'https://send.example', fallbackUrl: 'https://rpc.example', rawTx: 'AAAA', signature: 'S7', lastValidBlockHeight: 1_000 });
+    expect(out.status).toBe('confirmed');
+    const urls = f.mock.calls.map((c) => String((c as unknown[])[0]));
+    expect(urls[0]).toBe('https://send.example');
+    // Everything after the 500 goes to the fallback, always the same signed bytes.
+    expect(urls.slice(1).every((u) => u === 'https://rpc.example')).toBe(true);
+    expect(f.mock.calls.every((c) => bodyOf(c).params[0] === 'AAAA')).toBe(true);
+  });
+
+  it('keeps watching after a server error when there is no fallback', async () => {
+    fakeSend((n) => (n === 1 ? new Response('upstream error', { status: 500 }) : ok()));
+    const { conn } = fakeRpc({ statuses: (n) => (n >= 4 ? { slot: 9, confirmationStatus: 'confirmed', err: null } : null) });
+    const out = await sendAndConfirm({ conn, sendUrl: 'https://send.example', rawTx: 'AAAA', signature: 'S8', lastValidBlockHeight: 1_000 });
+    // A 500 isn't a refusal: it may have gone out, so it's watched (and rebroadcast) until it lands.
+    expect(out.status).toBe('confirmed');
+  });
+
+  it('shows the reason a plain-text error page gives', async () => {
+    fakeSend(() => new Response('<html>  Bad   tip account </html>', { status: 400 }));
+    await expect(sendRawTransaction('https://send.example', 'AAAA')).rejects.toThrow('<html> Bad tip account </html> (HTTP 400)');
   });
 
   it('keeps watching after a network error, since the send may have gone out', async () => {
@@ -282,7 +308,7 @@ describe('TradeEngine live sending', () => {
     const view = await engine.markets.watch(pool.address, 1);
     await expect(
       engine.trade({ side: 'buy', amount: 0.05, presetIndex: null, mint: view.mint, tier: 'fast', clickedAt: Date.now(), tabId: 1 }, settings, activeProfile(settings)),
-    ).rejects.toThrow(/Send refused: Rate limited/);
+    ).rejects.toThrow(/The sender refused the transaction: Rate limited/);
     await vi.waitFor(() => expect(log[0]?.status).toBe('rejected'));
     engine.dispose();
   });

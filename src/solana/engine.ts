@@ -386,7 +386,16 @@ export class TradeEngine {
     let markSent!: (at: number) => void;
     const sent = new Promise<number>((r) => (markSent = r));
     this.lastSendAt = now();
-    const done = sendAndConfirm({ conn: this.conn, sendUrl, rawTx, signature, lastValidBlockHeight: bh.lastValidBlockHeight, onSent: (at) => markSent(at) });
+    const done = sendAndConfirm({
+      conn: this.conn,
+      sendUrl,
+      // If the sender fails on its side, the same transaction goes through the user's own RPC.
+      fallbackUrl: sendUrl === this.endpoints.rpcUrl ? undefined : this.endpoints.rpcUrl,
+      rawTx,
+      signature,
+      lastValidBlockHeight: bh.lastValidBlockHeight,
+      onSent: (at) => markSent(at),
+    });
     this.pending.add(done);
     // A sell empties the holding the moment it lands, but is booked only once confirmed and read back: hold the PnL till then.
     if (req.side === 'sell') this.markets.holdPnl(req.mint, signature, true);
