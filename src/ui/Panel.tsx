@@ -838,6 +838,11 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
   // The hovered sell's real proceeds once quoted; until then (and in preview) the spot value of its share.
   const previewQuote = sellPreview !== null ? sellQuote : null;
   const headerSol = previewQuote ? Math.max(0, previewQuote.netSol) : holdingSol === null ? null : holdingSol * share;
+  // While a sell is hovered, the footer's PnL shows where it would end up: the sold share's value at the live price swapped
+  // for what the sell would really bring in, after the pool's fee, price impact, network fee, priority fee and tip.
+  const projectedPnl = previewQuote && market?.pnlSol != null && holdingSol !== null ? market.pnlSol - holdingSol * share + previewQuote.netSol : null;
+  const pnlSol = projectedPnl ?? market?.pnlSol ?? 0;
+  const pnlPct = projectedPnl !== null ? (market?.boughtSol ? (projectedPnl / market.boughtSol) * 100 : 0) : (market?.pnlPct ?? 0);
   const hoverSell = (pct: number | null, t: TierName = tier, presetIndex: number | null = null) => ({
     onPointerEnter: () => setSellHover(pct === null ? null : { pct, tier: t, presetIndex }),
     onPointerLeave: () => setSellHover(null),
@@ -1112,11 +1117,15 @@ You get about ${fmtSol(Math.max(0, previewQuote.netSol))} SOL: ${fmtSol(previewQ
             </span>
             <span title="Value of what you hold, at the current price">{amount(holdingSol ?? 0)}</span>
             <span
-              class={(market?.pnlSol ?? 0) >= 0 ? 'it-buy-c' : 'it-sell-c'}
-              title="Holding value + sold − bought − the network fees, priority fees and tips paid, for trades made with Quickdraw"
+              class={`${pnlSol >= 0 ? 'it-buy-c' : 'it-sell-c'}${projectedPnl !== null ? ' it-projected' : ''}`}
+              title={
+                projectedPnl !== null
+                  ? `Your PnL if you sell ${fmtPct(sellPreview ?? 0)} now: what the sell brings in after the pool's fee, price impact, network fee, priority fee and tip`
+                  : 'Holding value + sold − bought − the network fees, priority fees and tips paid, for trades made with Quickdraw'
+              }
             >
-              {amount(Math.abs(market?.pnlSol ?? 0), (market?.pnlSol ?? 0) >= 0 ? '+' : '−')}({(market?.pnlPct ?? 0) >= 0 ? '+' : '−'}
-              {fmtPct(Math.abs(market?.pnlPct ?? 0))})
+              {amount(Math.abs(pnlSol), pnlSol >= 0 ? '+' : '−')}({pnlPct >= 0 ? '+' : '−'}
+              {fmtPct(Math.abs(pnlPct))})
             </span>
           </footer>
         )}

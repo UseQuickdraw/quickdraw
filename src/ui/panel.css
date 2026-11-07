@@ -207,6 +207,8 @@ select:focus { border-color: var(--accent); }
 .it-right { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-variant-numeric: tabular-nums; }
 .it-right > span { display: inline-flex; align-items: center; gap: 4px; }
 .it-head .it-right.it-previewing { color: #c8c8c8; }
+/* The footer PnL while a sell is hovered: where that sell would leave it. */
+.it-projected { text-decoration: underline dotted; text-underline-offset: 3px; }
 /* Narrow panels: the header stays on one line, and the holding (amount + ticker) gives way first. */
 .it-head { gap: 8px; }
 .it-head .it-h { flex: none; }
