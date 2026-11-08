@@ -4,6 +4,7 @@
 import { z } from 'zod';
 import { PanelStateSchema, PriorityLevel, SettingsSchema, TierName, type Settings } from './settings/schema';
 import type { MintRisk } from './solana/tokens';
+import { AutomationsSchema, type ActivityRow, type Automations } from './automation/schema';
 
 const Base58Address = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'not a base58 address');
 const SiteKey = z.string().min(1).max(253);
@@ -102,6 +103,16 @@ export const EndpointsSchema = z.object({
 });
 export type Endpoints = z.infer<typeof EndpointsSchema>;
 
+/** The Automations page's view: the configs, copies made per config, today's automatic spend, and who's followed. */
+export interface AutomationsState {
+  automations: Automations;
+  fires: Record<string, number>;
+  spentTodaySol: number;
+  /** Leaders followed right now (empty while stopped, or when the worker has no RPC yet). */
+  following: string[];
+}
+export type { ActivityRow };
+
 /** Telegram trade alerts. Sealed with the endpoints, never exported with settings. */
 export const NotifySchema = z.object({
   /** From @BotFather: "123456789:AA…". */
@@ -141,6 +152,10 @@ export const PageRequest = z.discriminatedUnion('type', [
   z.object({ type: z.literal('GET_ENDPOINTS') }),
   z.object({ type: z.literal('TEST_ENDPOINTS'), endpoints: EndpointsSchema }),
   z.object({ type: z.literal('GET_NOTIFY') }),
+  /** Automations (copytrade…): the configs, the caps and the stop switch. */
+  z.object({ type: z.literal('GET_AUTOMATIONS') }),
+  z.object({ type: z.literal('SAVE_AUTOMATIONS'), automations: AutomationsSchema }),
+  z.object({ type: z.literal('GET_AUTOMATION_ACTIVITY') }),
   /** Null disconnects the bot. */
   z.object({ type: z.literal('SET_NOTIFY'), notify: NotifySchema.nullable() }),
   /** Finds the bot's name and the chat that last messaged it. */

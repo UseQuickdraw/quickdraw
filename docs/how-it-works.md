@@ -80,6 +80,10 @@ Every trade that lands through Quickdraw is read back from chain and booked per 
 - **Saved vs a 1% platform fee:** 1% of all the volume you've traded here.
 - **Options → Ledger** lists positions and exports every fill as CSV, with a latency log below it (click → sent, sent → landed, slot, rebroadcasts).
 
+## Automations: copytrade
+
+**Options → Automations** holds trades Quickdraw makes without a click. Copytrade follows chosen wallets with `logsSubscribe` on your RPC's WebSocket. Each of their transactions is read back and decoded: one coin in and SOL out is a buy, the reverse a sell, and anything else (transfers, swaps between coins) is ignored. Each copytrade then decides from its rules: a fixed size or a share of theirs, the minimum and maximum they spent, a maximum number of copies, first buy only, skip coins we hold or bought, skip their own launches, and copy sells as the same share of our holding. A buy is trimmed to the per-trade cap and refused past the daily cap; the stop switch halts everything. The copy goes through the normal trade path (signing guard, tips, priority fees, confirmation) with the config's slippage, and new copytrades start in dry run. Every signal lands in the activity log with what was done and why. Nothing runs while the browser is closed, and missed signals aren't replayed.
+
 ## Telegram alerts
 
 **Settings → Telegram alerts** connects your own bot: make one with @BotFather, message it once, and paste its token. The worker then calls Telegram's Bot API directly (`sendMessage` on `api.telegram.org`, a host permission asked for when you connect) when a trade made here lands, fails or expires, and when a trade made elsewhere shows up: a recent buy or sell of a coin you've opened, found on chain by the same check that books it (an Axiom take-profit, say), that this wallet didn't send. Each kind can be turned off. Alerts are sent a second apart, and only while the browser is open, since nothing runs anywhere else. The bot token is sealed like the endpoints and never exported with settings.

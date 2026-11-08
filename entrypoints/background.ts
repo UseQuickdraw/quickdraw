@@ -14,6 +14,7 @@ import {
   type PanelEvent,
   type Result,
   type SellQuote,
+  type AutomationsState,
   type BuyQuote,
   type TradeResult,
   type WalletRow,
@@ -33,6 +34,8 @@ import { hasOrigins } from '../src/solana/permissions';
 import { TELEGRAM_ORIGIN, findChat, formatNotice, sendTelegram, wants, type TradeNotice } from '../src/notify/telegram';
 import { parseLedger } from '../src/ledger/store';
 import { platformFeesAvoided, type Position } from '../src/ledger/ledger';
+import { AutomationRunner } from '../src/automation/runner';
+import { parseAutomations, type ActivityRow } from '../src/automation/schema';
 
 const ONBOARDED_KEY = 'onboarded';
 
@@ -128,7 +131,8 @@ async function tradeEngines(): Promise<{ pubkey: string; eng: TradeEngine }[]> {
   if (!active.length) throw (await keystore.needsPassword()) ? new keystore.NeedsPasswordError() : new keystore.NoWalletError();
   activeWallets = active;
   for (const [pk, e] of engines) {
-    if (!active.includes(pk)) {
+    // A wallet an automation trades from stays up even when it isn't selected for clicks.
+    if (!active.includes(pk) && !automationWallets.has(pk)) {
       e.eng.dispose();
       engines.delete(pk);
     }
@@ -146,10 +150,64 @@ function eachEngine(fn: (eng: TradeEngine) => void): void {
 }
 
 function stopMarkets(): void {
+  runner?.dispose();
+  runner = null;
   eachEngine((eng) => eng.dispose());
   engines.clear();
   views.clear();
   dropConnection();
+}
+
+// ------------------------------------------------------------- automations
+
+const AUTOMATIONS_KEY = 'automations';
+const ACTIVITY_KEY = 'automationActivity';
+const ACTIVITY_MAX = 300;
+const SPEND_KEY = 'automationSpend';
+const FIRES_KEY = 'automationFires';
+let runner: AutomationRunner | null = null;
+/** Wallets enabled automations trade from (their engines aren't shut down with the click selection). */
+let automationWallets = new Set<string>();
+
+const utcDay = () => new Date().toISOString().slice(0, 10);
+const local = async <T>(key: string): Promise<T | undefined> => (await browser.storage.local.get(key))[key] as T | undefined;
+
+async function spentToday(): Promise<number> {
+  const s = await local<{ day: string; sol: number }>(SPEND_KEY);
+  return s?.day === utcDay() ? s.sol : 0;
+}
+
+/** Starts (or re-syncs) the automation runner once there's a wallet and an RPC; quietly does nothing before that. */
+async function syncAutomations(): Promise<void> {
+  try {
+    const ep = await keystore.getEndpoints();
+    if (!ep || !(await keystore.hasWallet())) return;
+    runner ??= new AutomationRunner({
+      conn: connectionFor(ep),
+      load: async () => parseAutomations(await local(AUTOMATIONS_KEY)),
+      engineFor: async (wallet) => (wallet && (await keystore.getActive()).concat((await keystore.listWallets()).map((w) => w.pubkey)).includes(wallet) ? engineFor(wallet) : tradeEngine()),
+      settings: async () => {
+        const settings = await loadSettings();
+        return { settings, profile: activeProfile(settings) };
+      },
+      log: async (row: ActivityRow) => {
+        const rows = (await local<ActivityRow[]>(ACTIVITY_KEY)) ?? [];
+        await browser.storage.local.set({ [ACTIVITY_KEY]: [row, ...rows].slice(0, ACTIVITY_MAX) });
+      },
+      spentToday,
+      addSpent: async (sol) => browser.storage.local.set({ [SPEND_KEY]: { day: utcDay(), sol: (await spentToday()) + sol } }),
+      fires: async (id) => ((await local<Record<string, number>>(FIRES_KEY)) ?? {})[id] ?? 0,
+      addFire: async (id) => {
+        const f = (await local<Record<string, number>>(FIRES_KEY)) ?? {};
+        await browser.storage.local.set({ [FIRES_KEY]: { ...f, [id]: (f[id] ?? 0) + 1 } });
+      },
+    });
+    const cfg = parseAutomations(await local(AUTOMATIONS_KEY));
+    automationWallets = new Set(cfg.copytrades.filter((c) => c.enabled && c.wallet).map((c) => c.wallet!));
+    await runner.sync();
+  } catch (e) {
+    console.warn('[quickdraw] automations not started:', errorMessage(e));
+  }
 }
 
 // ---- one market view across the selected wallets: balances and P&L add up
@@ -541,7 +599,21 @@ async function handlePage(req: PageRequest): Promise<unknown> {
       await keystore.setEndpoints(req.endpoints);
       stopMarkets();
       await pushState();
+      void syncAutomations();
       return null;
+    case 'GET_AUTOMATIONS':
+      return {
+        automations: parseAutomations(await local(AUTOMATIONS_KEY)),
+        fires: (await local<Record<string, number>>(FIRES_KEY)) ?? {},
+        spentTodaySol: await spentToday(),
+        following: runner?.following() ?? [],
+      } satisfies AutomationsState;
+    case 'SAVE_AUTOMATIONS':
+      await browser.storage.local.set({ [AUTOMATIONS_KEY]: req.automations });
+      await syncAutomations();
+      return null;
+    case 'GET_AUTOMATION_ACTIVITY':
+      return (await local<ActivityRow[]>(ACTIVITY_KEY)) ?? [];
     case 'GET_ENDPOINTS':
       return keystore.getEndpoints();
     case 'TEST_ENDPOINTS':
@@ -622,6 +694,8 @@ async function route(msg: unknown, sender: Sender): Promise<Result<unknown>> {
 }
 
 export default defineBackground(() => {
+  // Automations pick up where they were whenever the worker starts.
+  void syncAutomations();
   browser.runtime.onMessage.addListener((msg: unknown, sender: Sender, sendResponse: (r: unknown) => void) => {
     void route(msg, sender).then(sendResponse);
     return true; // keep the channel open for the async response

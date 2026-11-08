@@ -10,9 +10,10 @@ import { FeesTab } from '../../src/ui/options/FeesTab';
 import { DisplayTab } from '../../src/ui/options/DisplayTab';
 import { EndpointsForm } from '../../src/ui/options/EndpointsForm';
 import { LedgerTab } from '../../src/ui/options/LedgerTab';
+import { AutomationsTab } from '../../src/ui/options/AutomationsTab';
 
-type Tab = 'wallet' | 'endpoints' | 'fees' | 'settings' | 'display' | 'ledger';
-const TABS: Tab[] = ['wallet', 'endpoints', 'fees', 'settings', 'display', 'ledger'];
+type Tab = 'wallet' | 'endpoints' | 'fees' | 'settings' | 'display' | 'automations' | 'ledger';
+const TABS: Tab[] = ['wallet', 'endpoints', 'fees', 'settings', 'display', 'automations', 'ledger'];
 
 function tabFromHash(): Tab {
   const h = location.hash.slice(1);
@@ -50,7 +51,7 @@ function App() {
   }
 
   return (
-    <main>
+    <main class={tab === 'automations' ? 'wide' : ''}>
       <header class="brand">
         <img src="/icon/128.png" alt="" />
         <div>
@@ -102,6 +103,7 @@ function App() {
       {tab === 'fees' && <FeesTab key={JSON.stringify(state.settings)} state={state} refresh={refresh} />}
       {tab === 'settings' && <SettingsTab key={JSON.stringify(state.settings)} state={state} refresh={refresh} />}
       {tab === 'display' && <DisplayTab key={JSON.stringify(state.settings)} state={state} refresh={refresh} />}
+      {tab === 'automations' && <AutomationsTab state={state} />}
       {tab === 'ledger' && <LedgerTab />}
     </main>
   );
