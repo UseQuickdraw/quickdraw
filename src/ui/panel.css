@@ -195,7 +195,33 @@ select:focus { border-color: var(--accent); }
 .it-badge.it-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 60%, transparent); }
 .it-err { color: var(--warn); font-size: 11px; padding: 2px 12px 0; user-select: text; }
 /* A coin whose creator can freeze, take back or hook tokens. */
-.it-risk { color: var(--sell); font-weight: 600; }
+.it-riskpop {
+  /* A coin whose creator can freeze, take back or hook tokens: a warning just above the panel, clicked away. */
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--sell) 55%, transparent);
+  border-left: 3px solid var(--sell);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 94%, var(--sell));
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  color: var(--sell);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  animation: it-pop-in 0.14s ease-out;
+}
+.it-riskpop span { flex: 1; }
+.it-riskpop small { color: var(--muted); font-weight: 500; white-space: nowrap; }
+.it-riskpop:hover small { color: var(--fg); }
+.it-riskpop-below { bottom: auto; top: calc(100% + 6px); }
+@keyframes it-pop-in { from { opacity: 0; transform: translateY(4px); } }
 
 /* --------------------------------------------------------- buy / sell */
 .it-side { padding: 8px 12px 6px; --c: var(--buy); }

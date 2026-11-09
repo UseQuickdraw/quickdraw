@@ -194,6 +194,8 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
   // The pencil: preset amounts as editable text while editing, null otherwise.
   const [draft, setDraft] = useState<{ buy: string[]; sell: string[]; sellSol: string[] } | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  // Coins whose risk warning was clicked away (for this page; it comes back on a reload).
+  const [riskHidden, setRiskHidden] = useState<ReadonlySet<string>>(new Set());
   const [bgImage, setBgImage] = useState<string | null>(() => peekPanelImage() ?? null);
   // The "Saved" total last seen with a coin: kept while the next coin loads, so the line never blinks out.
   const lastSaved = useRef<number | null>(null);
@@ -938,11 +940,6 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
         </header>
         {feeEditor}
         {marketErr && <div class="it-err">{marketErr}</div>}
-        {!!market?.risks?.length && (
-          <div class="it-err it-risk" title="Read from the coin's mint account. Plain pump.fun coins have none of these.">
-            ⚠ {riskText(market.risks)}.
-          </div>
-        )}
         {state.needsPassword && address && <div class="it-err">Enter your old password once in the extension to finish converting the wallet.</div>}
 
         <section class="it-side it-buy">
@@ -1139,6 +1136,18 @@ You get about ${fmtSol(Math.max(0, previewQuote.netSol))} SOL: ${fmtSol(previewQ
         {!pos.compact && resizeHandle('se')}
       </div>
       {walletPicker}
+      {!!market?.risks?.length && !riskHidden.has(market.mint) && (
+        // Above the panel (below it when the panel is at the top of the window); a click hides it for this coin.
+        <div
+          class={`it-riskpop${pos.y < 70 ? ' it-riskpop-below' : ''}`}
+          role="alert"
+          title="Read from the coin's mint account; plain pump.fun coins have none of these. Click to hide."
+          onClick={() => setRiskHidden((h) => new Set(h).add(market.mint))}
+        >
+          <span>⚠ {riskText(market.risks)}.</span>
+          <small>Hide</small>
+        </div>
+      )}
 
       {toastsAt === 'panel' && toastList}
     </div>
