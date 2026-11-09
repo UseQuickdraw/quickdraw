@@ -511,6 +511,8 @@ export function Panel({ site, subscribeAddress, subscribeEvents, toolbar, subscr
   onKey.current = (e) => {
     // Typing in the page, or in our own panel (its closed shadow root shows up as the host element).
     const inPanel = (e.target as Element | null)?.tagName === 'INSTANT-TRENCH';
+    // Only real key presses: a script on the page can dispatch fake keydown events, which must never trade.
+    if (!e.isTrusted) return;
     if (!state?.settings.hotkeys.enabled || e.repeat || inPanel || isTypingTarget(e.target)) return;
     const hk = state.settings.hotkeys;
     const prof = activeProfile(state.settings);

@@ -27,12 +27,17 @@ function leaderTx(side: 'buy' | 'sell', sol: number): VersionedTransactionRespon
   } as unknown as VersionedTransactionResponse;
 }
 
-function setup(automations: Automations, opts: { holding?: boolean; spent?: number } = {}) {
+function setup(automations: Automations, opts: { holding?: boolean; spent?: number; venue?: string; risks?: string[]; mcapUsd?: number } = {}) {
   const trade = vi.fn(async (req: { side: string; amount: number }, s: { safety: { dryRun: boolean } }) =>
     s.safety.dryRun ? { kind: 'simulated' as const, ok: true, text: 'ok', detail: '' } : { kind: 'sent' as const, signature: `sig-${req.side}-${req.amount}`, text: '', detail: '' },
   );
   const eng = {
-    markets: { watch: vi.fn(async () => ({})), tokenBalance: () => new BN(opts.holding ? 500 : 0) },
+    // A pump.fun coin worth `mcapUsd` (1B supply at SOL = $100), unless the test says otherwise.
+    markets: {
+      watch: vi.fn(async () => ({ venue: opts.venue ?? 'PUMP_CURVE', spotSolPerToken: (opts.mcapUsd ?? 50_000) / 100 / 1e9, solUsd: 100, risks: opts.risks ?? [] })),
+      get: () => ({ market: { mint: { supply: new BN('1000000000000000'), decimals: 6 } } }),
+      tokenBalance: () => new BN(opts.holding ? 500 : 0),
+    },
     ledger: { position: () => undefined },
     trade,
   } as unknown as TradeEngine;
@@ -55,7 +60,7 @@ function setup(automations: Automations, opts: { holding?: boolean; spent?: numb
 }
 
 const auto = (over: Partial<ReturnType<typeof newCopytrade>> = {}, caps: Partial<Automations> = {}): Automations => ({
-  stopped: false, maxSolPerTrade: 0.5, maxSolPerDay: 2, copytrades: [{ ...newCopytrade('c1'), targets: [leader], dryRun: false, ...over }], ...caps,
+  stopped: false, maxSolPerTrade: 0.5, maxSolPerDay: 2, manualLadder: { enabled: false, steps: [] }, deploys: [], copytrades: [{ ...newCopytrade('c1'), targets: [leader], dryRun: false, ...over }], ...caps,
 });
 
 describe('AutomationRunner', () => {
@@ -105,6 +110,42 @@ describe('AutomationRunner', () => {
     await none.runner.sync();
     await none.runner.onTransaction(leader, leaderTx('sell', 1));
     expect(none.rows[0]).toMatchObject({ outcome: 'skipped', detail: "we don't hold this coin" });
+  });
+
+  it("skips coins outside the copytrade's market cap, platforms or risk rule, saying why", async () => {
+    const mcap = setup(auto({ maxMcapUsd: 40_000 }), { mcapUsd: 50_000 });
+    await mcap.runner.sync();
+    await mcap.runner.onTransaction(leader, leaderTx('buy', 1));
+    expect(mcap.rows[0]).toMatchObject({ outcome: 'skipped', detail: 'market cap $50,000 is over $40,000' });
+
+    const plat = setup(auto({ platforms: ['raydium'] }));
+    await plat.runner.sync();
+    await plat.runner.onTransaction(leader, leaderTx('buy', 1));
+    expect(plat.rows[0]!.detail).toMatch(/pump isn't one of this copytrade's platforms/);
+
+    const risky = setup(auto(), { risks: ['freeze'] });
+    await risky.runner.sync();
+    await risky.runner.onTransaction(leader, leaderTx('buy', 1));
+    expect(risky.rows[0]!.detail).toMatch(/freeze/);
+    expect(mcap.trade).not.toHaveBeenCalled();
+  });
+
+  it('consensus: buys once the second followed wallet buys the same coin, and only once', async () => {
+    const other = Keypair.generate().publicKey.toBase58();
+    const both = setup(auto({ targets: [leader, other], consensus: { count: 2, windowSec: 600 }, firstBuyOnly: false, skipIfHolding: false, maxFires: null }));
+    await both.runner.sync();
+    await both.runner.onTransaction(leader, leaderTx('buy', 1));
+    expect(both.trade).not.toHaveBeenCalled();
+    expect(both.rows[0]!.detail).toBe('consensus 1 of 2 wallets within 600s');
+    const theirs = leaderTx('buy', 2);
+    // The same trade shape, but from the second wallet.
+    (theirs.transaction.message as unknown as { getAccountKeys: () => unknown }).getAccountKeys = () => ({ length: 3, get: (i: number) => [new PublicKey(other), pool, ata][i] });
+    (theirs.meta!.preTokenBalances as { owner: string }[])[0]!.owner = other;
+    (theirs.meta!.postTokenBalances as { owner: string }[])[0]!.owner = other;
+    await both.runner.onTransaction(other, theirs);
+    expect(both.trade).toHaveBeenCalledTimes(1);
+    await both.runner.onTransaction(leader, leaderTx('buy', 3));
+    expect(both.trade).toHaveBeenCalledTimes(1);
   });
 
   it('does nothing while stopped, follows nobody, and ignores wallets it does not follow', async () => {

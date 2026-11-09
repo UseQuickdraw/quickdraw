@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { PanelStateSchema, PriorityLevel, SettingsSchema, TierName, type Settings } from './settings/schema';
 import type { MintRisk } from './solana/tokens';
 import { AutomationsSchema, type ActivityRow, type Automations } from './automation/schema';
+import type { ActiveLadder } from './automation/ladder';
 
 const Base58Address = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'not a base58 address');
 const SiteKey = z.string().min(1).max(253);
@@ -110,6 +111,8 @@ export interface AutomationsState {
   spentTodaySol: number;
   /** Leaders followed right now (empty while stopped, or when the worker has no RPC yet). */
   following: string[];
+  /** Auto-sell ladders on open positions. */
+  ladders: ActiveLadder[];
 }
 export type { ActivityRow };
 
@@ -156,6 +159,8 @@ export const PageRequest = z.discriminatedUnion('type', [
   z.object({ type: z.literal('GET_AUTOMATIONS') }),
   z.object({ type: z.literal('SAVE_AUTOMATIONS'), automations: AutomationsSchema }),
   z.object({ type: z.literal('GET_AUTOMATION_ACTIVITY') }),
+  /** Cancels an active auto-sell ladder. */
+  z.object({ type: z.literal('REMOVE_LADDER'), wallet: z.string().min(32).max(44), mint: z.string().min(32).max(44) }),
   /** Null disconnects the bot. */
   z.object({ type: z.literal('SET_NOTIFY'), notify: NotifySchema.nullable() }),
   /** Finds the bot's name and the chat that last messaged it. */

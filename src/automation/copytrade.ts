@@ -3,7 +3,7 @@
 import { PublicKey, type VersionedTransactionResponse } from '@solana/web3.js';
 import { parseFill } from '../ledger/ledger';
 import { WSOL_MINT } from '../constants';
-import type { Automations, Copytrade } from './schema';
+import { platformOf, type Automations, type Copytrade } from './schema';
 
 /** Quote tokens: a leader moving these alongside a coin is the price side of the trade, not the coin. */
 const QUOTES = new Set([WSOL_MINT, 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB']);
@@ -20,6 +20,8 @@ export interface LeaderTrade {
   /** The leader created the coin in this transaction (its mint signed it). */
   deploy: boolean;
   blockTime: number | null;
+  /** The coin's curve or pool when the trade named it, so the copy can open that market without searching. */
+  venue?: string;
 }
 
 /**
@@ -103,6 +105,38 @@ export function decideCopy(cfg: Copytrade, t: LeaderTrade, ctx: CopyContext): Co
   const size = cfg.size.mode === 'fixed' ? cfg.size.sol : Math.min(cfg.size.maxSol, (t.sol * cfg.size.pct) / 100);
   if (size < 0.0001) return { kind: 'skip', reason: `the copy would be ${sol(size)}, too small to trade` };
   return { kind: 'buy', sol: +size.toFixed(9) };
+}
+
+/** What's known about the coin once its market is open. */
+export interface MarketFacts {
+  venue: string;
+  /** Market cap in USD, null when the SOL price isn't known yet. */
+  mcapUsd: number | null;
+  risky: boolean;
+}
+
+/** Why the coin's market rules a buy out, or null. Sells always go through: they get us out. */
+export function marketBlocks(cfg: Copytrade, m: MarketFacts): string | null {
+  if (cfg.platforms.length && !cfg.platforms.includes(platformOf(m.venue))) return `${platformOf(m.venue)} isn't one of this copytrade's platforms`;
+  if (cfg.skipRisky && m.risky) return "the coin's creator can freeze or take back tokens";
+  const usd = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
+  if (m.mcapUsd !== null && cfg.minMcapUsd !== null && m.mcapUsd < cfg.minMcapUsd) return `market cap ${usd(m.mcapUsd)} is under ${usd(cfg.minMcapUsd)}`;
+  if (m.mcapUsd !== null && cfg.maxMcapUsd !== null && m.mcapUsd > cfg.maxMcapUsd) return `market cap ${usd(m.mcapUsd)} is over ${usd(cfg.maxMcapUsd)}`;
+  if (m.mcapUsd === null && (cfg.minMcapUsd !== null || cfg.maxMcapUsd !== null)) return "the SOL price isn't known yet, so the market cap can't be checked";
+  return null;
+}
+
+/**
+ * Consensus: records `leader` buying `mint` at `at` and says whether enough
+ * distinct followed wallets have bought it inside the window. `seen` is the
+ * config's memory (mint -> leader -> last buy time), pruned as it goes.
+ */
+export function consensusReached(seen: Map<string, Map<string, number>>, mint: string, leader: string, at: number, rule: { count: number; windowSec: number }): { reached: boolean; have: number } {
+  const buyers = seen.get(mint) ?? new Map<string, number>();
+  buyers.set(leader, at);
+  for (const [l, t] of buyers) if (at - t > rule.windowSec * 1000) buyers.delete(l);
+  seen.set(mint, buyers);
+  return { reached: buyers.size >= rule.count, have: buyers.size };
 }
 
 /**

@@ -413,3 +413,103 @@ main.wide { max-width: 1120px; }
 .tag button.icon, .modal header button.icon { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 6px; }
 .tag button.icon:hover, .modal header button.icon:hover { color: var(--fg); background: rgba(255, 255, 255, 0.06); }
 button.danger { color: var(--bad); border-color: rgba(239, 79, 124, 0.4); }
+.auto-sub { margin: 18px 0 8px; font-size: 13px; }
+.auto-item.static { cursor: default; }
+.ladder { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.ladder-row { display: grid; grid-template-columns: 160px 1fr 1fr auto; gap: 10px; align-items: start; }
+.ladder-row label { display: flex; flex-direction: column; gap: 4px; }
+.ladder-row small { color: var(--muted); font-size: 11px; }
+.ladder-row button.icon { background: none; border: none; color: var(--muted); cursor: pointer; padding: 8px; }
+@media (max-width: 560px) { .ladder-row { grid-template-columns: 1fr 1fr; } }
+
+/* =================================================================== *
+ * Terminal look (2026-11-09): square corners, monospace labels and     *
+ * numbers, flat fills, thin rules, a faint grid instead of the glow,   *
+ * and the pages down a full-height sidebar.                            *
+ * =================================================================== */
+:root {
+  --radius: 3px;
+  --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  --bg: #07090a;
+  --bg2: #0d1012;
+  --bg3: #090b0c;
+  --border: #1e2326;
+  --border-hi: #2c3337;
+  --muted: #7d878c;
+}
+body { font-size: 13px; }
+body::before {
+  /* A faint engineering grid, not the promo glow. */
+  inset: 0;
+  height: auto;
+  filter: none;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.mono, small.mono, .count, .chip, th, .state { font-family: var(--mono); }
+h2 { font-family: var(--mono); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 28px 0 8px; }
+h2::before { content: '//'; width: auto; height: auto; background: none; transform: none; box-shadow: none; color: var(--accent); letter-spacing: 0; }
+.card { border-radius: var(--radius); box-shadow: none; backdrop-filter: none; padding: 14px 16px; margin: 10px 0; }
+input, textarea, select { border-radius: var(--radius); padding: 7px 10px; font-family: var(--mono); font-size: 12.5px; }
+input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 1px var(--accent); }
+input[type='checkbox']:not(.switch) { border-radius: 2px; }
+button, .btn { border-radius: var(--radius); padding: 6px 12px; font-size: 12.5px; transition: none; }
+button:active, .btn:active { transform: none; }
+button.primary { background: var(--accent); box-shadow: none; border-color: var(--accent); color: #031006; font-weight: 650; }
+button.primary:hover { background: var(--accent-hi); box-shadow: none; }
+input[type='file']::file-selector-button { border-radius: var(--radius); }
+.secret { border-radius: var(--radius); }
+.chip { border-radius: 2px; padding: 3px 8px; font-size: 11px; letter-spacing: 0.04em; }
+.chip::before { border-radius: 0; box-shadow: none; width: 6px; height: 6px; }
+th { letter-spacing: 0.08em; }
+td { font-variant-numeric: tabular-nums; }
+label { font-size: 12.5px; }
+.modal { border-radius: var(--radius); background: var(--bg2); }
+.modal-body h4 { font-family: var(--mono); }
+.seg, .seg button, .checks, .tag, .auto-menu, .auto-menu button, .auto-menu .count, .outcome { border-radius: var(--radius); }
+.auto-bar.stopped { box-shadow: none; }
+
+/* The layout: the sidebar, then the page with its own header. */
+.app { display: grid; grid-template-columns: 236px 1fr; min-height: 100vh; }
+.side { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; border-right: 1px solid var(--border); background: rgba(7, 9, 10, 0.92); padding: 16px 12px; overflow-y: auto; }
+.side-brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 18px; font-weight: 700; font-size: 15px; }
+.side-brand img { width: 26px; height: 26px; border-radius: 3px; }
+.side-brand small { margin-left: auto; color: var(--faint); font-size: 10px; font-weight: 500; }
+.side-group { margin-bottom: 14px; }
+.side-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); padding: 0 8px 6px; }
+.side nav button { width: 100%; display: flex; align-items: center; gap: 10px; justify-content: flex-start; background: none; border: 1px solid transparent; padding: 7px 8px; color: var(--muted); font-weight: 500; text-align: left; }
+.side nav button:hover:not(:disabled) { color: var(--fg); background: rgba(255, 255, 255, 0.03); border-color: transparent; }
+.side nav button.on { color: var(--fg); background: rgba(68, 162, 87, 0.1); border-color: rgba(68, 162, 87, 0.35); }
+.side nav button.on .glyph { color: var(--accent-hi); }
+.side nav button:disabled { opacity: 0.4; }
+.side .glyph { width: 16px; text-align: center; font-family: var(--mono); color: var(--faint); }
+.side .count { margin-left: auto; font-size: 10px; min-width: 22px; text-align: center; padding: 1px 6px; border: 1px solid var(--border-hi); border-radius: 2px; }
+.side nav button.on .count { border-color: rgba(68, 162, 87, 0.6); color: var(--accent-hi); }
+.side nav small { margin-left: auto; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
+.side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding: 12px 8px 0; border-top: 1px solid var(--border); }
+.side-foot a { color: var(--muted); text-decoration: none; font-size: 12px; }
+.side-foot a:hover { color: var(--fg); }
+.state { align-self: flex-start; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; padding: 3px 7px; border: 1px solid var(--border-hi); border-radius: 2px; }
+.state.live { color: var(--bad); border-color: rgba(239, 79, 124, 0.5); }
+.state.dry { color: var(--warn); border-color: rgba(232, 163, 61, 0.5); }
+.state.preview { color: var(--muted); }
+.content { min-width: 0; }
+.page-head { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 16px 28px; border-bottom: 1px solid var(--border); background: rgba(7, 9, 10, 0.94); backdrop-filter: blur(6px); }
+.page-head h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+.page-head p { margin: 2px 0 0; font-size: 11px; color: var(--faint); }
+.page-body { padding: 20px 28px 80px; max-width: 1080px; }
+.auto-main { margin-top: 16px; }
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; }
+  .side { position: static; height: auto; }
+}
+main.content { max-width: none; margin: 0; padding: 0; }
+/* The page header already names the page. */
+.page-body .auto-head h3 { display: none; }
+.page-body .auto-head { justify-content: flex-end; }
+.auto-bar { display: grid; grid-template-columns: 1fr 140px 140px 110px; gap: 16px; align-items: end; }
+.auto-bar label { max-width: none; }
+@media (max-width: 760px) { .auto-bar { grid-template-columns: 1fr 1fr; } }
+input[type='checkbox'].switch { border-radius: 3px; }
+input[type='checkbox'].switch::after { border-radius: 2px; }
+input[type='checkbox'].switch:checked { box-shadow: none; }

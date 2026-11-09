@@ -188,3 +188,23 @@ button.primary {
 /* The convert-wallet card, borrowed from the options page. */
 .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin: 0 0 10px; }
 .card input { width: 100%; background: #0c0c0c; color: var(--fg); border: 1px solid var(--border); border-radius: 10px; padding: 7px 10px; font: inherit; }
+
+/* Terminal look, matching the options page: square corners, mono numbers, flat fills, no glow. */
+:root { --bg: #07090a; --bg2: #0d1012; --bg3: #111517; --border: #1e2326; --border-hi: #2c3337; --muted: #7d878c; --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace; }
+.popup::before { display: none; }
+.popup { background-image: linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px); background-size: 20px 20px; }
+.top img { border-radius: 3px; box-shadow: none; }
+.top h1 { font-size: 15px; }
+.pill, .actions button, .mode, .tabs, .tabs button, .list li, .total, .card, .box, button.primary, .card input { border-radius: 3px; }
+.pill { font-family: var(--mono); font-size: 11px; }
+.mode { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; border-radius: 2px; }
+.mode::before { border-radius: 0; box-shadow: none; }
+.total { box-shadow: none; backdrop-filter: none; }
+.total .label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+.total .amount, .bal, .total .sub { font-family: var(--mono); }
+.list li { backdrop-filter: none; }
+.list li.on { box-shadow: none; background: rgba(68, 162, 87, 0.08); }
+.box.on { box-shadow: none; }
+.tabs { margin: 0 12px 12px; backdrop-filter: none; }
+.tabs button.on { background: rgba(68, 162, 87, 0.12); }
+button.primary { background: var(--green); box-shadow: none; }

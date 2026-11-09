@@ -320,6 +320,11 @@ export class TradeEngine {
     );
   }
 
+  /** This engine's wallet. */
+  get wallet(): string {
+    return this.signer.publicKey.toBase58();
+  }
+
   dispose(): void {
     for (const t of this.timers) clearInterval(t);
     this.timers = [];

@@ -35,6 +35,7 @@ import { TELEGRAM_ORIGIN, findChat, formatNotice, sendTelegram, wants, type Trad
 import { parseLedger } from '../src/ledger/store';
 import { platformFeesAvoided, type Position } from '../src/ledger/ledger';
 import { AutomationRunner } from '../src/automation/runner';
+import { LadderManager } from '../src/automation/ladderManager';
 import { parseAutomations, type ActivityRow } from '../src/automation/schema';
 
 const ONBOARDED_KEY = 'onboarded';
@@ -152,6 +153,8 @@ function eachEngine(fn: (eng: TradeEngine) => void): void {
 function stopMarkets(): void {
   runner?.dispose();
   runner = null;
+  ladders?.dispose();
+  ladders = null;
   eachEngine((eng) => eng.dispose());
   engines.clear();
   views.clear();
@@ -166,6 +169,8 @@ const ACTIVITY_MAX = 300;
 const SPEND_KEY = 'automationSpend';
 const FIRES_KEY = 'automationFires';
 let runner: AutomationRunner | null = null;
+let ladders: LadderManager | null = null;
+const LADDERS_KEY = 'ladders';
 /** Wallets enabled automations trade from (their engines aren't shut down with the click selection). */
 let automationWallets = new Set<string>();
 
@@ -177,12 +182,38 @@ async function spentToday(): Promise<number> {
   return s?.day === utcDay() ? s.sol : 0;
 }
 
+async function attachManualLadder(mint: string, wallets: string[]): Promise<void> {
+  const m = parseAutomations(await local(AUTOMATIONS_KEY)).manualLadder;
+  if (!m.enabled || !m.steps.length || !ladders) return;
+  for (const w of wallets) await ladders.attach(w, mint, m.steps, 'manual buy').catch(() => {});
+}
+
 /** Starts (or re-syncs) the automation runner once there's a wallet and an RPC; quietly does nothing before that. */
 async function syncAutomations(): Promise<void> {
   try {
     const ep = await keystore.getEndpoints();
     if (!ep || !(await keystore.hasWallet())) return;
+    const settingsNow = async () => {
+      const settings = await loadSettings();
+      return { settings, profile: activeProfile(settings) };
+    };
+    const logActivity = async (row: ActivityRow) => {
+      const rows = (await local<ActivityRow[]>(ACTIVITY_KEY)) ?? [];
+      await browser.storage.local.set({ [ACTIVITY_KEY]: [row, ...rows].slice(0, ACTIVITY_MAX) });
+    };
+    if (!ladders) {
+      ladders = new LadderManager({
+        load: async () => (await local<Record<string, never>>(LADDERS_KEY)) ?? {},
+        save: (all) => browser.storage.local.set({ [LADDERS_KEY]: all }),
+        engineFor: (wallet) => engineFor(wallet),
+        settings: settingsNow,
+        stopped: async () => parseAutomations(await local(AUTOMATIONS_KEY)).stopped,
+        log: logActivity,
+      });
+      await ladders.start();
+    }
     runner ??= new AutomationRunner({
+      attachLadder: (wallet, mint, steps, source, opts) => ladders!.attach(wallet, mint, steps, source, opts),
       conn: connectionFor(ep),
       load: async () => parseAutomations(await local(AUTOMATIONS_KEY)),
       engineFor: async (wallet) => (wallet && (await keystore.getActive()).concat((await keystore.listWallets()).map((w) => w.pubkey)).includes(wallet) ? engineFor(wallet) : tradeEngine()),
@@ -203,7 +234,10 @@ async function syncAutomations(): Promise<void> {
       },
     });
     const cfg = parseAutomations(await local(AUTOMATIONS_KEY));
-    automationWallets = new Set(cfg.copytrades.filter((c) => c.enabled && c.wallet).map((c) => c.wallet!));
+    automationWallets = new Set([
+      ...[...cfg.copytrades, ...cfg.deploys].filter((c) => c.enabled && c.wallet).map((c) => c.wallet!),
+      ...(ladders?.list().map((l) => l.wallet) ?? []),
+    ]);
     await runner.sync();
   } catch (e) {
     console.warn('[quickdraw] automations not started:', errorMessage(e));
@@ -459,8 +493,10 @@ async function handleContent(req: ContentRequest, sender: Sender): Promise<unkno
       const profile = activeProfile(settings);
       new PublicKey(req.mint); // throws on an invalid key
       const engs = await tradeEngines();
-      if (engs.length === 1) return (await engs[0]!.eng.trade({ ...req, tabId }, settings, profile)) satisfies TradeResult;
-      return tradeAll(engs, { ...req, tabId }, settings, profile);
+      const result = engs.length === 1 ? await engs[0]!.eng.trade({ ...req, tabId }, settings, profile) : await tradeAll(engs, { ...req, tabId }, settings, profile);
+      // The manual auto-sell ladder rides on every real buy (a wallet whose buy didn't land drops it on its own).
+      if (req.side === 'buy' && result.kind !== 'simulated') void attachManualLadder(req.mint, engs.map((e) => e.pubkey));
+      return result satisfies TradeResult;
     }
     case 'QUOTE_SELL': {
       const settings = await loadSettings();
@@ -607,7 +643,11 @@ async function handlePage(req: PageRequest): Promise<unknown> {
         fires: (await local<Record<string, number>>(FIRES_KEY)) ?? {},
         spentTodaySol: await spentToday(),
         following: runner?.following() ?? [],
+        ladders: ladders?.list() ?? [],
       } satisfies AutomationsState;
+    case 'REMOVE_LADDER':
+      await ladders?.remove(req.wallet, req.mint);
+      return null;
     case 'SAVE_AUTOMATIONS':
       await browser.storage.local.set({ [AUTOMATIONS_KEY]: req.automations });
       await syncAutomations();
