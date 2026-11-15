@@ -6,13 +6,15 @@ const PLATFORM_LABEL: Record<Platform, string> = { pump: 'pump.fun / PumpSwap', 
 import { describeStep, type LadderStep } from '../../automation/ladder';
 import { call } from '../pageClient';
 import { shortAddr } from '../format';
+import { CalloutsView } from './CalloutsView';
+import { ListField, SavedNumber } from './ListField';
 
 // Automations: trades Quickdraw makes on its own. A left menu of kinds (copytrade
 // first; the rest are on the way), the global caps and stop switch on top, and
 // an activity log of every signal and what was done about it.
 
 /** The automation pages, each its own entry in the options sidebar. */
-export type AutomationView = 'copytrade' | 'autosell' | 'deploy' | 'activity';
+export type AutomationView = 'copytrade' | 'autosell' | 'deploy' | 'callouts' | 'activity';
 
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const num = (e: Event) => Number((e.target as HTMLInputElement).value);
@@ -56,6 +58,7 @@ export function AutomationsTab({ state, view, onNew }: { state: WalletState; vie
 
   return (
     <div class="auto">
+      {view !== 'callouts' && (
       <div class={`card auto-bar ${a.stopped ? 'stopped' : ''}`}>
         <label class="auto-stop">
           <input type="checkbox" class="switch" checked={!a.stopped} onChange={(e) => void save({ ...a, stopped: !checked(e) })} />
@@ -66,17 +69,18 @@ export function AutomationsTab({ state, view, onNew }: { state: WalletState; vie
         </label>
         <label>
           Max per trade (SOL)
-          <input type="number" step="0.05" min="0.001" value={a.maxSolPerTrade} onChange={(e) => num(e) > 0 && void save({ ...a, maxSolPerTrade: num(e) })} />
+          <SavedNumber step="0.05" min="0.001" value={a.maxSolPerTrade} onSave={(n) => void save({ ...a, maxSolPerTrade: n })} />
         </label>
         <label>
           Max per day (SOL)
-          <input type="number" step="0.1" min="0.001" value={a.maxSolPerDay} onChange={(e) => num(e) > 0 && void save({ ...a, maxSolPerDay: num(e) })} />
+          <SavedNumber step="0.1" min="0.001" value={a.maxSolPerDay} onSave={(n) => void save({ ...a, maxSolPerDay: n })} />
         </label>
         <div class="auto-spent">
           <small>Spent today</small>
           <b>{+data.spentTodaySol.toFixed(4)} SOL</b>
         </div>
       </div>
+      )}
       {state.settings.safety.dryRun && <p class="warn">Dry run is on in Settings, so every automation only simulates for now.</p>}
       {err && <p class="err">{err}</p>}
 
@@ -201,6 +205,9 @@ export function AutomationsTab({ state, view, onNew }: { state: WalletState; vie
               ))}
             </>
           )}
+          {view === 'callouts' && (
+            <CalloutsView data={data} state={state} save={save} ladderEditor={(steps, onChange) => <LadderEditor steps={steps} onChange={onChange} />} />
+          )}
           {view === 'activity' && <ActivityView rows={activity} />}
       </section>
 
@@ -289,20 +296,20 @@ function DeployEditor(props: { value: Deploy; state: WalletState; isNew: boolean
             </label>
             <label>
               Name / ticker contains
-              <input placeholder="pepe, wojak" value={d.contains.join(', ')} onChange={(e) => set({ contains: listOf(text(e)) })} />
+              <ListField placeholder="pepe, wojak" value={d.contains} parse={(r) => listOf(r)} onList={(contains) => set({ contains })} />
             </label>
             <label>
               Name / ticker excludes
-              <input placeholder="farm, rekt" value={d.excludes.join(', ')} onChange={(e) => set({ excludes: listOf(text(e)) })} />
+              <ListField placeholder="farm, rekt" value={d.excludes} parse={(r) => listOf(r)} onList={(excludes) => set({ excludes })} />
             </label>
           </div>
           <label>
             Whitelisted mints
-            <textarea rows={2} placeholder="Mint addresses" value={d.mints.join('\n')} onChange={(e) => set({ mints: listOf(text(e), BASE58) })} />
+            <ListField multiline sep={'\n'} placeholder="Mint addresses" value={d.mints} parse={(r) => listOf(r, BASE58)} onList={(mints) => set({ mints })} />
           </label>
           <label>
             Whitelisted deployers
-            <textarea rows={2} placeholder="Deployer wallet addresses" value={d.deployers.join('\n')} onChange={(e) => set({ deployers: listOf(text(e), BASE58) })} />
+            <ListField multiline sep={'\n'} placeholder="Deployer wallet addresses" value={d.deployers} parse={(r) => listOf(r, BASE58)} onList={(deployers) => set({ deployers })} />
           </label>
 
           <h4>Size and triggers</h4>
@@ -423,7 +430,9 @@ function ActivityView({ rows }: { rows: ActivityRow[] }) {
               <td>{new Date(r.at).toLocaleTimeString([], { hour12: false })}</td>
               <td>{r.automationName}</td>
               <td>
-                {r.leader ? (
+                {r.signal ? (
+                  <small title={r.signal}>{r.signal}</small>
+                ) : r.leader ? (
                   <>
                     <b class={r.leaderSide}>{r.leaderSide === 'buy' ? 'Bought' : 'Sold'}</b> {+r.leaderSol.toFixed(3)} SOL
                     <small>{shortAddr(r.leader, 4)}</small>

@@ -116,8 +116,8 @@ export interface MarketFacts {
 }
 
 /** Why the coin's market rules a buy out, or null. Sells always go through: they get us out. */
-export function marketBlocks(cfg: Copytrade, m: MarketFacts): string | null {
-  if (cfg.platforms.length && !cfg.platforms.includes(platformOf(m.venue))) return `${platformOf(m.venue)} isn't one of this copytrade's platforms`;
+export function marketBlocks(cfg: Pick<Copytrade, 'platforms' | 'skipRisky' | 'minMcapUsd' | 'maxMcapUsd'>, m: MarketFacts): string | null {
+  if (cfg.platforms.length && !cfg.platforms.includes(platformOf(m.venue))) return `${platformOf(m.venue)} isn't one of this automation's platforms`;
   if (cfg.skipRisky && m.risky) return "the coin's creator can freeze or take back tokens";
   const usd = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
   if (m.mcapUsd !== null && cfg.minMcapUsd !== null && m.mcapUsd < cfg.minMcapUsd) return `market cap ${usd(m.mcapUsd)} is under ${usd(cfg.minMcapUsd)}`;

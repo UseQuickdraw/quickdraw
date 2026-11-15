@@ -11,7 +11,8 @@ import { WSOL_MINT } from '../constants';
 import { consensusReached, decideCopy, marketBlocks, parseLeaderTrade, withinCaps, type LeaderTrade } from './copytrade';
 import { decodeLeaderLogs, type LogTrade } from './fastDecode';
 import { PUMP_MINT_AUTHORITY, decodeLaunch, launchMisses, type Launch } from './deploy';
-import type { ActivityRow, Automations, Copytrade, Deploy } from './schema';
+import type { ActivityRow, Automations, Callout, Copytrade, Deploy } from './schema';
+import { SignalFeed, callersOf, signalLabel, signalMisses, type FeedStatus, type Signal } from './callout';
 
 /** The pseudo-tab automations watch markets under (no page shows it). */
 export const AUTOMATION_TAB = -1;
@@ -46,12 +47,25 @@ export class AutomationRunner {
   /** Coins a consensus copytrade has already bought, so the 4th and 5th buyer don't trigger it again. */
   private consensusFired = new Set<string>();
 
-  constructor(private readonly deps: RunnerDeps) {}
+  /** The signal server's feed, while any callout automation is on. */
+  private feed: SignalFeed | null = null;
+  private feedKey = '';
+  private signalsSeen = new Set<string>();
+  /** Callout consensus memory per config: mint -> caller -> when they posted. */
+  private calloutCallers = new Map<string, Map<string, Map<string, number>>>();
+  /** `${config}:${mint}` already bought by a callout automation. */
+  private calloutBought = new Set<string>();
+
+  constructor(
+    private readonly deps: RunnerDeps,
+    private readonly openFeed: (server: NonNullable<Automations['signalServer']>, on: (s: Signal) => void) => SignalFeed = (srv, on) => new SignalFeed(srv, on),
+  ) {}
 
   /** (Re)reads the automations and follows exactly the leaders that enabled configs name. */
   async sync(): Promise<void> {
     this.config = await this.deps.load();
     this.syncLaunches(this.config);
+    this.syncSignals(this.config);
     const want = new Set(this.config.stopped ? [] : this.config.copytrades.filter((c) => c.enabled).flatMap((c) => c.targets));
     for (const [leader, id] of this.subs) {
       if (want.has(leader)) continue;
@@ -75,6 +89,100 @@ export class AutomationRunner {
       void this.deps.conn.removeOnLogsListener(this.launchSub).catch(() => {});
       this.launchSub = null;
     }
+  }
+
+  /** Connects to the signal server while any callout automation is on (and reconnects when its address changes). */
+  private syncSignals(cfg: Automations): void {
+    const want = !cfg.stopped && !!cfg.signalServer && cfg.callouts.some((c) => c.enabled);
+    const key = want ? JSON.stringify(cfg.signalServer) : '';
+    if (key === this.feedKey) return;
+    this.feed?.close();
+    this.feed = want ? this.openFeed(cfg.signalServer!, (s) => void this.onSignal(s)) : null;
+    this.feedKey = key;
+  }
+
+  /** The signal server connection, for the options page. */
+  signalStatus(): FeedStatus {
+    return this.feed?.status ?? { state: 'off', count: 0, lastAt: null };
+  }
+
+  /** Every enabled callout automation decides on a signal. Exposed for tests. */
+  async onSignal(s: Signal, now = Date.now()): Promise<void> {
+    const cfg = this.config;
+    if (!cfg || cfg.stopped || this.signalsSeen.has(s.id)) return;
+    this.signalsSeen.add(s.id);
+    if (this.signalsSeen.size > 5_000) this.signalsSeen.delete(this.signalsSeen.values().next().value!);
+    for (const c of cfg.callouts) {
+      if (!c.enabled) continue;
+      const miss = signalMisses(c, s, now);
+      // Other sources, and old posts replayed from profiles and feeds (over 10 minutes), aren't worth a log line each.
+      if (miss) {
+        const age = now - (s.at ?? s.receivedAt);
+        if (!/sources/.test(miss) && !(/ago, over/.test(miss) && age > 10 * 60_000)) await this.recordSignal(c, s, 'skipped', miss);
+        continue;
+      }
+      await this.buyCallout(cfg, c, s, now).catch((e: Error) => this.recordSignal(c, s, 'failed', e.message));
+    }
+  }
+
+  private async buyCallout(cfg: Automations, c: Callout, s: Signal, now: number): Promise<void> {
+    const key = `${c.id}:${s.mint}`;
+    if (c.consensus) {
+      const seen = this.calloutCallers.get(c.id) ?? new Map<string, Map<string, number>>();
+      this.calloutCallers.set(c.id, seen);
+      const have = callersOf(seen, s.mint, s.authorWallet ?? s.author, s.at ?? now, c.consensus.windowSec);
+      if (have < c.consensus.count) return this.recordSignal(c, s, 'skipped', `${have} of ${c.consensus.count} callers within ${c.consensus.windowSec}s`);
+    }
+    if (this.calloutBought.has(key)) return this.recordSignal(c, s, 'skipped', 'already bought this coin');
+    // Claimed now, so a second post on the same coin arriving mid-check can't buy it twice; released if this one doesn't buy.
+    this.calloutBought.add(key);
+    let bought = false;
+    const t0 = Date.now();
+    try {
+      // Speed: open the coin (one RPC round trip) while the stored counters and settings are read.
+      const eng = await this.deps.engineFor(c.wallet);
+      const [view, fires, spent, { settings, profile }] = await Promise.all([
+        eng.markets.watch(s.mint, AUTOMATION_TAB),
+        c.maxFires !== null ? this.deps.fires(c.id) : Promise.resolve(0),
+        this.deps.spentToday(),
+        this.deps.settings(),
+      ]);
+      if (c.maxFires !== null && fires >= c.maxFires) return await this.recordSignal(c, s, 'skipped', `already bought ${c.maxFires} (the maximum)`);
+      const caps = withinCaps(cfg, c.buySol, spent);
+      if (!caps.ok) return await this.recordSignal(c, s, 'skipped', caps.reason);
+      if ((eng.ledger.position(s.mint)?.buys ?? 0) > 0 || !eng.markets.tokenBalance(s.mint).isZero()) {
+        bought = true; // held already: never buy it on this config
+        return await this.recordSignal(c, s, 'skipped', 'you already hold or bought this coin');
+      }
+      const live = eng.markets.get(s.mint);
+      const supply = live ? Number(live.market.mint.supply.toString()) / 10 ** live.market.mint.decimals : 0;
+      const blocked = marketBlocks(c, { venue: view.venue, mcapUsd: view.solUsd && supply ? view.spotSolPerToken * supply * view.solUsd : null, risky: !!view.risks?.length });
+      if (blocked) return await this.recordSignal(c, s, 'skipped', blocked);
+      bought = true;
+      const st: Settings = { ...settings, safety: { ...settings.safety, dryRun: settings.safety.dryRun || c.dryRun } };
+      const p: Profile = { ...profile, slippagePct: c.slippagePct };
+      // When it went out, on the signal's clock (\`now\` = when the signal arrived here).
+      const sentAt = now + (Date.now() - t0);
+      const r = await eng.trade({ side: 'buy', amount: caps.sol, mint: s.mint, tier: c.tier, presetIndex: null, clickedAt: Date.now(), tabId: AUTOMATION_TAB }, st, p);
+      // How long after the post the buy went out, and how much of that was ours (after the signal arrived).
+      const posted = s.at ?? s.receivedAt;
+      const secs = (ms: number) => Math.round(ms / 100) / 10;
+      const what = `Bought ${caps.sol} SOL, sent ${secs(sentAt - posted)}s after the post (${secs(sentAt - now)}s here)${caps.trimmed ? ` (trimmed to the ${cfg.maxSolPerTrade} SOL per-trade cap)` : ''}`;
+      if (r.kind === 'simulated') return await this.recordSignal(c, s, 'simulated', `${what} (dry run${r.ok ? '' : `, would fail: ${r.text}`})`);
+      await this.deps.addSpent(caps.sol);
+      await this.deps.addFire(c.id);
+      if (c.ladder.length) await this.deps.attachLadder?.(eng.wallet, s.mint, c.ladder, c.name, { dryRun: c.dryRun, slippagePct: c.slippagePct }).catch(() => {});
+      await this.recordSignal(c, s, 'copied', what, r.kind === 'sent' ? r.signature : undefined);
+    } finally {
+      if (!bought) this.calloutBought.delete(key);
+    }
+  }
+
+  private recordSignal(c: Callout, s: Signal, outcome: ActivityRow['outcome'], detail: string, signature?: string): Promise<void> {
+    return this.deps.log({
+      at: Date.now(), automationId: c.id, automationName: c.name, leader: s.authorWallet ?? s.author, mint: s.mint, leaderSide: 'buy', leaderSol: 0,
+      signal: signalLabel(s), outcome, detail, signature,
+    });
   }
 
   /** Every enabled deploy sniper checks a new coin; matches are bought. Exposed for tests. */
@@ -130,6 +238,9 @@ export class AutomationRunner {
     this.subs.clear();
     if (this.launchSub !== null) void this.deps.conn.removeOnLogsListener(this.launchSub).catch(() => {});
     this.launchSub = null;
+    this.feed?.close();
+    this.feed = null;
+    this.feedKey = '';
   }
 
   private async onSignature(leader: string, signature: string, logs: readonly string[] = []): Promise<void> {

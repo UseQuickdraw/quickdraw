@@ -98,6 +98,8 @@ b, strong { font-weight: 650; color: var(--fg); }
 .chip::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; }
 .chip.live { color: var(--bad); border-color: rgba(239, 79, 124, 0.4); background: rgba(239, 79, 124, 0.08); }
 .chip.dry { color: var(--warn); border-color: rgba(232, 163, 61, 0.4); background: rgba(232, 163, 61, 0.08); }
+.chip.ok { color: var(--good, #3ecf8e); border-color: rgba(62, 207, 142, 0.4); background: rgba(62, 207, 142, 0.08); }
+.chip.bad { color: var(--bad); border-color: rgba(239, 79, 124, 0.4); background: rgba(239, 79, 124, 0.08); }
 .chip.preview { color: var(--muted); }
 
 /* Tabs: a pill bar. */

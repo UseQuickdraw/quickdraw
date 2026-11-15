@@ -69,7 +69,7 @@ describe('deploy sniping in the runner', () => {
     const rows: ActivityRow[] = [];
     const settings = { ...defaultSettings(), safety: { ...defaultSettings().safety, dryRun: false } };
     const automations: Automations = {
-      stopped: false, maxSolPerTrade: 0.5, maxSolPerDay: 2, copytrades: [], manualLadder: { enabled: false, steps: [] },
+      stopped: false, maxSolPerTrade: 0.5, maxSolPerDay: 2, copytrades: [], callouts: [], signalServer: null, manualLadder: { enabled: false, steps: [] },
       deploys: [{ ...newDeploy('d1'), dryRun: false, deployers: [real.creator], buySol: 0.05 }, { ...newDeploy('d2'), dryRun: false, contains: ['zzzznotaword'] }],
     };
     const subs: unknown[] = [];

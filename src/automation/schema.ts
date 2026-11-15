@@ -1,6 +1,7 @@
 // Automations: settings for trades Quickdraw makes on its own (copytrade first).
 // Stored in chrome.storage.local, apart from the click settings, and validated
-// on load like them. Nothing here is a secret.
+// on load like them. Nothing here is a secret except the signal server's
+// token, which only lets someone read your callout feed.
 import { z } from 'zod';
 import { HARD_LIMITS } from '../constants';
 import { LadderStepSchema } from './ladder';
@@ -96,6 +97,62 @@ export function newDeploy(id: string): Deploy {
   };
 }
 
+/** Where a callout signal came from. */
+export const SIGNAL_SOURCES = ['pumpfun', 'fomo'] as const;
+export type SignalSource = (typeof SIGNAL_SOURCES)[number];
+
+/** Buys coins that callers you follow call out on pump.fun or post a thesis on in FOMO (via your signal server). */
+export const CalloutSchema = z.object({
+  kind: z.literal('callout'),
+  id: z.string().min(1).max(64),
+  name: z.string().min(1).max(16),
+  enabled: z.boolean(),
+  dryRun: z.boolean(),
+  wallet: Base58.nullable(),
+  buySol: Sol.positive(),
+  sources: z.array(z.enum(SIGNAL_SOURCES)).min(1),
+  /**
+   * Callers per site, by that site's username, wallet or account id: a name only
+   * means one person on one site. Empty = everyone the signal server passes
+   * from that site (the accounts you follow there). Older configs had one list,
+   * which was always used for pump.fun.
+   */
+  callers: z.preprocess(
+    (v) => (Array.isArray(v) ? { pumpfun: v, fomo: [] } : v),
+    z.object({ pumpfun: z.array(z.string().min(1).max(64)).max(100), fomo: z.array(z.string().min(1).max(64)).max(100) }),
+  ),
+  /** Ignore posts older than this when they arrive (feeds can lag, and old calls get replayed). */
+  maxAgeSec: z.number().int().min(5).max(3600),
+  /** Words the post must contain one of / must contain none of. */
+  contains: z.array(z.string().min(1).max(32)).max(20),
+  excludes: z.array(z.string().min(1).max(32)).max(20),
+  minMcapUsd: z.number().nonnegative().nullable(),
+  maxMcapUsd: z.number().positive().nullable(),
+  platforms: z.array(z.enum(PLATFORMS)),
+  skipRisky: z.boolean(),
+  /** Consensus: only buy once this many different callers have posted the coin within the window. */
+  consensus: z.object({ count: z.number().int().min(2).max(20), windowSec: z.number().int().min(10).max(86_400) }).nullable(),
+  maxFires: z.number().int().positive().nullable(),
+  slippagePct: z.number().min(HARD_LIMITS.minSlippagePct).max(HARD_LIMITS.maxSlippagePct),
+  tier: z.enum(['fast', 'eco']),
+  ladder: z.array(LadderStepSchema).max(10),
+});
+export type Callout = z.infer<typeof CalloutSchema>;
+
+export function newCallout(id: string): Callout {
+  return {
+    kind: 'callout', id, name: 'callouts', enabled: true, dryRun: true, wallet: null, buySol: 0.05, sources: ['pumpfun', 'fomo'], callers: { pumpfun: [], fomo: [] }, maxAgeSec: 90,
+    contains: [], excludes: [], minMcapUsd: null, maxMcapUsd: null, platforms: [], skipRisky: true, consensus: null, maxFires: 5, slippagePct: 20, tier: 'fast', ladder: [],
+  };
+}
+
+/** The home signal server: its WebSocket address and access token. */
+export const SignalServerSchema = z.object({
+  url: z.string().regex(/^wss?:\/\/[^\s]+$/, 'must start with ws:// or wss://').max(200),
+  token: z.string().min(8).max(200),
+});
+export type SignalServer = z.infer<typeof SignalServerSchema>;
+
 export const AutomationsSchema = z.object({
   /** The big switch: nothing automatic trades while it's on. */
   stopped: z.boolean(),
@@ -104,12 +161,14 @@ export const AutomationsSchema = z.object({
   maxSolPerDay: Sol.positive(),
   copytrades: z.array(CopytradeSchema).max(50),
   deploys: z.array(DeploySchema).max(50).default([]),
+  callouts: z.array(CalloutSchema).max(50).default([]),
+  signalServer: SignalServerSchema.nullable().default(null),
   /** An auto-sell ladder attached to every buy made by clicking (or a hotkey). */
   manualLadder: z.object({ enabled: z.boolean(), steps: z.array(LadderStepSchema).max(10) }).default({ enabled: false, steps: [] }),
 });
 export type Automations = z.infer<typeof AutomationsSchema>;
 
-export const DEFAULT_AUTOMATIONS: Automations = { stopped: false, maxSolPerTrade: 0.5, maxSolPerDay: 2, copytrades: [], deploys: [], manualLadder: { enabled: false, steps: [] } };
+export const DEFAULT_AUTOMATIONS: Automations = { stopped: false, maxSolPerTrade: 0.5, maxSolPerDay: 2, copytrades: [], deploys: [], callouts: [], signalServer: null, manualLadder: { enabled: false, steps: [] } };
 
 export function newCopytrade(id: string): Copytrade {
   return {
@@ -156,6 +215,8 @@ export interface ActivityRow {
   /** What the leader did. */
   leaderSide: 'buy' | 'sell';
   leaderSol: number;
+  /** For callout automations: who posted what, shown instead of the leader's trade. */
+  signal?: string;
   outcome: 'copied' | 'simulated' | 'skipped' | 'failed';
   /** Why it was skipped or failed, or what was sent. */
   detail: string;

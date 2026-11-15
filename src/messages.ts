@@ -113,8 +113,12 @@ export interface AutomationsState {
   following: string[];
   /** Auto-sell ladders on open positions. */
   ladders: ActiveLadder[];
+  /** The signal server connection (callout automations). */
+  signals: FeedStatus;
 }
 export type { ActivityRow };
+import type { FeedStatus } from './automation/callout';
+export type { FeedStatus };
 
 /** Telegram trade alerts. Sealed with the endpoints, never exported with settings. */
 export const NotifySchema = z.object({

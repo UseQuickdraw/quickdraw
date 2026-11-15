@@ -60,7 +60,7 @@ function setup(automations: Automations, opts: { holding?: boolean; spent?: numb
 }
 
 const auto = (over: Partial<ReturnType<typeof newCopytrade>> = {}, caps: Partial<Automations> = {}): Automations => ({
-  stopped: false, maxSolPerTrade: 0.5, maxSolPerDay: 2, manualLadder: { enabled: false, steps: [] }, deploys: [], copytrades: [{ ...newCopytrade('c1'), targets: [leader], dryRun: false, ...over }], ...caps,
+  stopped: false, maxSolPerTrade: 0.5, maxSolPerDay: 2, manualLadder: { enabled: false, steps: [] }, deploys: [], callouts: [], signalServer: null, copytrades: [{ ...newCopytrade('c1'), targets: [leader], dryRun: false, ...over }], ...caps,
 });
 
 describe('AutomationRunner', () => {
@@ -121,7 +121,7 @@ describe('AutomationRunner', () => {
     const plat = setup(auto({ platforms: ['raydium'] }));
     await plat.runner.sync();
     await plat.runner.onTransaction(leader, leaderTx('buy', 1));
-    expect(plat.rows[0]!.detail).toMatch(/pump isn't one of this copytrade's platforms/);
+    expect(plat.rows[0]!.detail).toMatch(/pump isn't one of this automation's platforms/);
 
     const risky = setup(auto(), { risks: ['freeze'] });
     await risky.runner.sync();

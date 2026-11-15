@@ -14,7 +14,7 @@ import { LedgerTab } from '../../src/ui/options/LedgerTab';
 import { AutomationsTab } from '../../src/ui/options/AutomationsTab';
 import type { AutomationsState } from '../../src/messages';
 
-type Tab = 'wallet' | 'endpoints' | 'fees' | 'settings' | 'display' | 'copytrade' | 'autosell' | 'deploy' | 'activity' | 'ledger';
+type Tab = 'wallet' | 'endpoints' | 'fees' | 'settings' | 'display' | 'copytrade' | 'autosell' | 'deploy' | 'callouts' | 'activity' | 'ledger';
 interface Page {
   id: Tab;
   label: string;
@@ -40,7 +40,7 @@ const GROUPS: { name: string; pages: (Page | { soon: string; glyph: string })[] 
       { id: 'copytrade', label: 'Copytrade', title: 'Copytrade', sub: "copy other wallets' trades", glyph: '⧉' },
       { id: 'autosell', label: 'Auto-sell', title: 'Auto-sell', sub: 'take-profit, stop-loss, trailing and timed sells', glyph: '⤓' },
       { soon: 'Twitter', glyph: '𝕏' },
-      { soon: 'Callouts', glyph: '◉' },
+      { id: 'callouts', label: 'Callouts', title: 'Callouts', sub: 'buy what the callers you follow call out on pump.fun and FOMO', glyph: '◉' },
       { id: 'deploy', label: 'Deploy sniper', title: 'Deploy sniper', sub: 'buy new pump.fun coins that match your rules', glyph: '⌖' },
       { soon: 'PF claims', glyph: '◈' },
       { id: 'activity', label: 'Activity', title: 'Activity', sub: 'every signal and what was done about it', glyph: '≡' },
@@ -103,6 +103,7 @@ function App() {
     copytrade: auto?.automations.copytrades.filter((c) => c.enabled).length ?? 0,
     autosell: auto?.ladders.length ?? 0,
     deploy: auto?.automations.deploys.filter((d) => d.enabled).length ?? 0,
+    callouts: auto?.automations.callouts.filter((c) => c.enabled).length ?? 0,
   };
   const mode = state.preview ? 'preview' : state.settings.safety.dryRun ? 'dry' : 'live';
 
@@ -177,7 +178,7 @@ function App() {
           {tab === 'fees' && <FeesTab key={JSON.stringify(state.settings)} state={state} refresh={refresh} />}
           {tab === 'settings' && <SettingsTab key={JSON.stringify(state.settings)} state={state} refresh={refresh} />}
           {tab === 'display' && <DisplayTab key={JSON.stringify(state.settings)} state={state} refresh={refresh} />}
-          {(tab === 'copytrade' || tab === 'autosell' || tab === 'deploy' || tab === 'activity') && <AutomationsTab state={state} view={tab} />}
+          {(tab === 'copytrade' || tab === 'autosell' || tab === 'deploy' || tab === 'callouts' || tab === 'activity') && <AutomationsTab state={state} view={tab} />}
           {tab === 'ledger' && <LedgerTab />}
         </div>
       </main>

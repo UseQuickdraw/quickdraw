@@ -235,7 +235,7 @@ async function syncAutomations(): Promise<void> {
     });
     const cfg = parseAutomations(await local(AUTOMATIONS_KEY));
     automationWallets = new Set([
-      ...[...cfg.copytrades, ...cfg.deploys].filter((c) => c.enabled && c.wallet).map((c) => c.wallet!),
+      ...[...cfg.copytrades, ...cfg.deploys, ...cfg.callouts].filter((c) => c.enabled && c.wallet).map((c) => c.wallet!),
       ...(ladders?.list().map((l) => l.wallet) ?? []),
     ]);
     await runner.sync();
@@ -644,6 +644,7 @@ async function handlePage(req: PageRequest): Promise<unknown> {
         spentTodaySol: await spentToday(),
         following: runner?.following() ?? [],
         ladders: ladders?.list() ?? [],
+        signals: runner?.signalStatus() ?? { state: 'off', count: 0, lastAt: null },
       } satisfies AutomationsState;
     case 'REMOVE_LADDER':
       await ladders?.remove(req.wallet, req.mint);
