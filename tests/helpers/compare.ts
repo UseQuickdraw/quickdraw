@@ -23,8 +23,7 @@ import {
 import { OnlinePumpAmmSdk, buyQuoteInput, sellBaseInput } from '@pump-fun/pump-sdk/swap';
 import { resolveAddress } from '../../src/solana/resolver';
 import { openMarket, venueAllowlist } from '../../src/venues/registry';
-import { lessSlippage, plusSlippage, type Market } from '../../src/venues/types';
-import type { CurveMarket } from '../../src/venues/pumpCurve';
+import { lessSlippage, type Market } from '../../src/venues/types';
 import { guardTransaction } from '../../src/solana/guard';
 import { SENDER } from '../../src/constants';
 import type { Fixture } from './fixtures';
@@ -78,7 +77,7 @@ async function sdkBuyOut(conn: Connection, m: Market, lamports: BN): Promise<{ o
     isMayhemMode: st.pool.isMayhemMode,
     creatorFeeBps: st.pool.creatorFeeBps,
   });
-  return { out: r.base, maxIn: r.maxQuote };
+  return { out: r.base };
 }
 
 async function sdkSellOut(conn: Connection, m: Market, tokens: BN): Promise<BN> {
@@ -146,12 +145,10 @@ export async function compareWithSdk(conn: Connection, fx: Fixture, opts: { reco
     const sdk = await sdkBuyOut(conn, market, lamports);
     if (!opts.record) {
       expect(ours.out.toString(), `${fx.name} buy ${l}`).toBe(sdk.out.toString());
-      if (sdk.maxIn) expect(ours.maxIn.toString()).toBe(sdk.maxIn.toString());
-      if (market.venue === 'PUMP_CURVE') {
-        const cashback = (market as CurveMarket).bondingCurve.isCashbackCoin;
-        // v3 exact-in: min tokens out = quote - slippage. Cashback coins use v2 exact-out: cost cap = in + slippage.
-        expect(ours.minOut.toString()).toBe((cashback ? sdk.out : lessSlippage(sdk.out, SLIPPAGE, 1)).toString());
-        expect(ours.maxIn.toString()).toBe((cashback ? plusSlippage(lamports, SLIPPAGE) : lamports).toString());
+      if (market.venue === 'PUMP_CURVE' || market.venue === 'PUMPSWAP') {
+        // Exact SOL in on every pump path: never spends more than asked; slippage only lowers the tokens accepted.
+        expect(ours.minOut.toString()).toBe(lessSlippage(sdk.out, SLIPPAGE, 1).toString());
+        expect(ours.maxIn.toString()).toBe(lamports.toString());
       }
     }
     guardBuilt(market, await market.buildBuy(TEST_USER, null, ours, SLIPPAGE));

@@ -1,9 +1,8 @@
 // PumpSwap AMM (post-migration), via the pinned SDK's `@pump-fun/pump-sdk/swap`
 // subpath (the standalone pump-swap-sdk was folded into it).
 //
-// SOL pools: buys use the SDK's quote-input builder (v1 `buy`: exact tokens
-// out, cost capped at the quote + slippage); sells use base-input (`sell`, min
-// SOL out). The SDK wraps SOL into our WSOL ATA and closes it again in the
+// SOL pools: buys are `buy_exact_quote_in` (exact SOL in, min tokens out; see
+// exactIn.ts); sells use base-input (`sell`, min SOL out). The SDK wraps SOL into our WSOL ATA and closes it again in the
 // same tx.
 //
 // Pools quoted in another token (a coin paired with a pump coin, say) trade
@@ -34,7 +33,8 @@ import type { MintInfo } from '../solana/tokens';
 import { JUPITER_PROGRAM_ID, routeMinOut, routeV2Instruction, slippageBps } from './jupiter';
 import { PumpPool } from './pumpPool';
 import { hopAtas, nonSolQuoteNamed, routeCuFloor, openRoute, transferFeeOf, type Route, type SolLeg } from './routes';
-import { VenueError, impactPct, type Market, type Quote, type VenueAdapter } from './types';
+import { VenueError, impactPct, lessSlippage, type Market, type Quote, type VenueAdapter } from './types';
+import { DISC, toExactIn } from './exactIn';
 
 class PoolMarket implements Market {
   readonly venue: 'PUMPSWAP' | 'PUMPSWAP_ROUTED';
@@ -100,8 +100,10 @@ class PoolMarket implements Market {
       const minOut = BN.max(routeMinOut(out, slippageBps(slippagePct)), new BN(1));
       return { side: 'buy', inAmount: lamportsIn, out, minOut, maxIn: lamportsIn, priceImpactPct: impactPct('buy', lamportsIn, out, this.spotPerRaw()) };
     }
-    const r = this.pool.buy(lamportsIn, slippagePct);
-    return { side: 'buy', inAmount: lamportsIn, out: r.base, minOut: r.base, maxIn: r.maxQuote, priceImpactPct: impactPct('buy', lamportsIn, r.base, this.spotPerRaw()) };
+    // buy_exact_quote_in: spends exactly lamportsIn; slippage lowers the tokens accepted, never raises the cost.
+    const out = this.pool.buy(lamportsIn, slippagePct).base;
+    if (out.isZero()) throw new VenueError('Buy amount too small for this pool', 'EMPTY');
+    return { side: 'buy', inAmount: lamportsIn, out, minOut: lessSlippage(out, slippagePct, 1), maxIn: lamportsIn, priceImpactPct: impactPct('buy', lamportsIn, out, this.spotPerRaw()) };
   }
 
   quoteSell(tokensIn: BN, slippagePct: number): Quote {
@@ -131,7 +133,11 @@ class PoolMarket implements Market {
   // The SDK builders re-derive amounts from the same cached state, so they match the quote.
   async buildBuy(user: PublicKey, userAta: AccountInfo<Buffer> | null, q: Quote, slippagePct: number) {
     this.pool.assertTradable();
-    if (!this.route) return PUMP_AMM_SDK.buyQuoteInput(this.pool.swapState(user, userAta), q.inAmount, slippagePct);
+    if (!this.route) {
+      // Built as v1 `buy` (wraps exactly q.inAmount of SOL), then switched to buy_exact_quote_in.
+      const ixs = await PUMP_AMM_SDK.buyInstructions(this.pool.swapState(user, userAta), q.minOut, q.inAmount);
+      return toExactIn(ixs, PUMP_AMM_PROGRAM_ID, DISC.ammBuy, DISC.ammBuyExactQuoteIn, q.inAmount, q.minOut);
+    }
     const wsol = this.wsolAta(user);
     const ixs: TransactionInstruction[] = [];
     if (!userAta) ixs.push(createAssociatedTokenAccountIdempotentInstruction(user, this.pool.userBase(user), user, this.mint.mint, this.mint.tokenProgram));

@@ -4,7 +4,8 @@
 //   buy  -> buy_exact_quote_in_v3 (exact SOL in, min tokens out; prices a buy
 //           that crosses the remaining supply into the pool-to-be)
 //   sell -> sell_v3
-//   Cashback coins are refused by v3 (6094), so they use buy_v2 / sell_v2.
+//   Cashback coins are refused by v3 (6094), so they use
+//   buy_exact_quote_in_v2 (built via buy_v2, see exactIn.ts) / sell_v2.
 //
 // Curves priced in another token (PUMP, say) trade through a Jupiter route
 // built here: SOL <-> quote token on that token's SOL pool, then the curve's
@@ -40,7 +41,8 @@ import { tokenAccountMint, tokenAmount, type MintInfo } from '../solana/tokens';
 import { JUPITER_PROGRAM_ID, SWAP, routeMinOut, routeV2Instruction, slippageBps, type RouteLeg } from './jupiter';
 import { assertPlainToken } from './raydiumClmm';
 import { hopAtas, nonSolQuoteNamed, routeCuFloor, openRoute, type Route, type SolLeg } from './routes';
-import { VenueError, impactPct, lessSlippage, plusSlippage, type Market, type Quote, type VenueAdapter } from './types';
+import { VenueError, impactPct, lessSlippage, type Market, type Quote, type VenueAdapter } from './types';
+import { DISC, toExactIn } from './exactIn';
 
 const PROTOCOL_TTL_MS = 60_000;
 let protocol: { global: Global; feeConfig: FeeConfig; at: number } | null = null;
@@ -163,14 +165,15 @@ class CurveMarket implements Market {
       return { side: 'buy', inAmount: lamportsIn, out, minOut, maxIn: lamportsIn, priceImpactPct: impactPct('buy', lamportsIn, out, this.spotLamportsPerRaw()) };
     }
     if (this.curve.isCashbackCoin) {
-      // buy_v2: exact tokens out, cost capped at quoteAmount + slippage.
+      // buy_exact_quote_in_v2: spends exactly lamportsIn; slippage lowers the tokens accepted, never raises the cost.
       const out = getBuyTokenAmountFromSolAmount({ ...base, amount: lamportsIn, quoteMint: this.curve.quoteMint });
+      if (out.isZero()) throw new VenueError('Buy amount too small for this curve', 'EMPTY');
       return {
         side: 'buy',
         inAmount: lamportsIn,
         out,
-        minOut: out,
-        maxIn: plusSlippage(lamportsIn, slippagePct),
+        minOut: lessSlippage(out, slippagePct, 1),
+        maxIn: lamportsIn,
         priceImpactPct: impactPct('buy', lamportsIn, out, this.spotPerRaw()),
       };
     }
@@ -320,7 +323,9 @@ class CurveMarket implements Market {
     if (this.route) return this.buildRoutedBuy(user, userAta, q, slippagePct);
     const common = { bondingCurve: this.curve, associatedUserAccountInfo: userAta, mint: this.mint.mint, user, slippage: slippagePct, tokenProgram: this.mint.tokenProgram, quoteTokenProgram: TOKEN_PROGRAM_ID };
     if (this.curve.isCashbackCoin) {
-      return PUMP_SDK.buyV2Instructions({ ...common, global: this.global, bondingCurveAccountInfo: this.curveInfo, amount: q.out, quoteAmount: q.inAmount });
+      // Built as buy_v2, then switched to buy_exact_quote_in_v2 (same accounts and layout).
+      const ixs = await PUMP_SDK.buyV2Instructions({ ...common, global: this.global, bondingCurveAccountInfo: this.curveInfo, amount: q.minOut, quoteAmount: q.inAmount });
+      return toExactIn(ixs, PUMP_PROGRAM_ID, DISC.curveBuyV2, DISC.curveBuyExactQuoteInV2, q.inAmount, q.minOut);
     }
     return PUMP_SDK.buyExactQuoteInV3Instructions({ ...common, amount: q.out, quoteAmount: q.inAmount });
   }
